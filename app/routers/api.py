@@ -73,9 +73,16 @@ async def toggle_watched(title_id: int, session: AsyncSession = Depends(get_sess
     title = await session.get(Title, title_id)
     if not title:
         raise HTTPException(404)
-    title.watched = not title.watched
+    # Watched state applies to the combined title, across all its providers.
+    siblings = (await session.execute(
+        select(Title).where(Title.tmdb_id == title.tmdb_id,
+                            Title.media_type == title.media_type)
+    )).scalars().all()
+    new_state = not any(s.watched for s in siblings)
+    for s in siblings:
+        s.watched = new_state
     await session.commit()
-    label = "Watched ✓" if title.watched else "Mark watched"
+    label = "Watched ✓" if new_state else "Mark watched"
     return Response(content=label, media_type="text/plain")
 
 
@@ -83,7 +90,9 @@ async def toggle_watched(title_id: int, session: AsyncSession = Depends(get_sess
 async def delete_title(title_id: int, session: AsyncSession = Depends(get_session)):
     title = await session.get(Title, title_id)
     if title:
-        await session.delete(title)
+        # Remove the combined title: every provider's row.
+        await session.execute(delete(Title).where(
+            Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type))
         await session.commit()
     return Response(headers={"HX-Redirect": "/"})
 

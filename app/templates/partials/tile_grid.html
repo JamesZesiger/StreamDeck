@@ -1,15 +1,23 @@
-{% if titles %}
+{% if groups %}
 <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-  {% for t in titles %}
+  {% for g in groups %}
+  {% set t = g.primary %}
   <a href="/titles/{{ t.id }}" class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 transition">
     {% if t.poster_url %}
     <img src="{{ t.poster_url }}" alt="{{ t.title }}" class="w-full aspect-[2/3] object-cover group-hover:opacity-80 transition">
     {% else %}
     <div class="w-full aspect-[2/3] flex items-center justify-center p-3 text-center text-sm text-zinc-400">{{ t.title }}</div>
     {% endif %}
-    <img src="{{ t.service.icon_path }}" alt="{{ t.service.name }}" title="{{ t.service.name }}"
-         class="absolute top-2 right-2 w-7 h-7 rounded-md shadow-lg">
-    {% if t.watched %}
+    <div class="absolute top-2 right-2 flex -space-x-2">
+      {% for s in g.services[:3] %}
+      <img src="{{ s.icon_path }}" alt="{{ s.name }}" title="{{ s.name }}"
+           class="w-7 h-7 rounded-md shadow-lg ring-1 ring-zinc-950">
+      {% endfor %}
+      {% if g.services|length > 3 %}
+      <span class="w-7 h-7 rounded-md bg-zinc-800 ring-1 ring-zinc-950 text-xs font-semibold flex items-center justify-center">+{{ g.services|length - 3 }}</span>
+      {% endif %}
+    </div>
+    {% if g.watched %}
     <span class="absolute top-2 left-2 bg-emerald-600 text-xs font-semibold px-2 py-0.5 rounded-full">✓</span>
     {% endif %}
     <div class="p-2">

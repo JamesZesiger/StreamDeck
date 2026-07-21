@@ -33,16 +33,32 @@ async def library(
         query = query.where(Title.title.ilike(f"%{q.strip()}%"))
     titles = (await session.execute(query)).scalars().all()
 
+    # The same title on several services combines into one tile; providers
+    # sort alphabetically and the first is the tile's link target (default).
+    by_key: dict[tuple, list[Title]] = {}
+    for t in titles:
+        by_key.setdefault((t.tmdb_id, t.media_type), []).append(t)
+    groups = []
+    for rows in by_key.values():
+        rows = sorted(rows, key=lambda r: r.service.name.lower())
+        groups.append({
+            "primary": rows[0],
+            "services": [r.service for r in rows],
+            "watched": any(r.watched for r in rows),
+            "added": max(r.added_at for r in rows),
+        })
+    groups.sort(key=lambda g: g["added"], reverse=True)
+
     # htmx search requests swap only the grid
     if request.headers.get("hx-request") == "true":
         return templates.TemplateResponse(request, "partials/tile_grid.html",
-                                          {"titles": titles, "q": q})
+                                          {"groups": groups, "q": q})
 
     services = (await session.execute(
         select(Service).where(Service.enabled).order_by(Service.name)
     )).scalars().all()
     return templates.TemplateResponse(request, "library.html", {
-        "titles": titles,
+        "groups": groups,
         "services": services,
         "active_service": service,
         "active_watched": watched,
@@ -102,9 +118,15 @@ async def _get_title(title_id: int, session: AsyncSession) -> Title:
 @router.get("/titles/{title_id}")
 async def detail(request: Request, title_id: int, session: AsyncSession = Depends(get_session)):
     title = await _get_title(title_id, session)
+    siblings = (await session.execute(
+        select(Title).options(selectinload(Title.service))
+        .where(Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type)
+    )).scalars().all()
+    providers = sorted(siblings, key=lambda r: r.service.name.lower())
     return templates.TemplateResponse(request, "detail.html", {
         "t": title,
-        "embedded": title.service.playback_mode == PlaybackMode.embedded,
+        "providers": providers,
+        "group_watched": any(r.watched for r in providers),
     })
 
 

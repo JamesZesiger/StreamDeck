@@ -14,9 +14,11 @@
     <img src="{{ t.poster_url }}" alt="{{ t.title }}" class="w-48 rounded-xl shadow-2xl ring-1 ring-zinc-700 self-start">
     {% endif %}
     <div class="flex-1">
-      <div class="flex items-center gap-3 mb-2">
-        <img src="{{ t.service.icon_path }}" alt="{{ t.service.name }}" class="w-8 h-8 rounded-md">
-        <span class="text-sm text-zinc-400">{{ t.service.name }} · {{ 'Series' if t.media_type.value == 'tv' else 'Movie' }}</span>
+      <div class="flex items-center gap-2 mb-2">
+        {% for p in providers %}
+        <img src="{{ p.service.icon_path }}" alt="{{ p.service.name }}" title="{{ p.service.name }}" class="w-8 h-8 rounded-md">
+        {% endfor %}
+        <span class="text-sm text-zinc-400 ml-1">{{ 'Series' if t.media_type.value == 'tv' else 'Movie' }}</span>
       </div>
       <h1 class="text-4xl font-bold mb-2">{{ t.title }}</h1>
       <p class="text-sm text-zinc-400 mb-4">
@@ -25,21 +27,32 @@
       </p>
       <p class="text-zinc-300 leading-relaxed mb-6 max-w-2xl">{{ t.overview }}</p>
 
+      <div class="space-y-2 mb-6 max-w-xl">
+        {% for p in providers %}
+        <div class="flex items-center gap-3 bg-zinc-900/70 ring-1 ring-zinc-800 rounded-xl px-4 py-2.5">
+          <img src="{{ p.service.icon_path }}" alt="" class="w-7 h-7 rounded-md">
+          <span class="flex-1 font-medium">{{ p.service.name }}
+            {% if loop.first and providers|length > 1 %}<span class="ml-2 text-xs text-zinc-500">default</span>{% endif %}
+          </span>
+          {% if p.service.playback_mode.value == 'embedded' %}
+          <a href="{{ p.deep_link }}" target="_blank" rel="noopener"
+             class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-xs">Open in browser</a>
+          <a href="/titles/{{ p.id }}/play"
+             class="rounded-lg {{ 'bg-red-600 hover:bg-red-500' if loop.first else 'bg-zinc-700 hover:bg-zinc-600' }} px-5 py-1.5 text-sm font-semibold">▶ Play</a>
+          {% else %}
+          <a href="{{ p.deep_link }}" target="_blank" rel="noopener"
+             class="rounded-lg {{ 'bg-red-600 hover:bg-red-500' if loop.first else 'bg-zinc-700 hover:bg-zinc-600' }} px-5 py-1.5 text-sm font-semibold">▶ Play</a>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
       <div class="flex flex-wrap items-center gap-3">
-        {% if embedded %}
-        <a href="/titles/{{ t.id }}/play"
-           class="rounded-lg bg-red-600 hover:bg-red-500 px-6 py-2.5 font-semibold">▶ Play</a>
-        <a href="{{ t.deep_link }}" target="_blank" rel="noopener"
-           class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-2.5 text-sm">Open in browser (best quality)</a>
-        {% else %}
-        <a href="{{ t.deep_link }}" target="_blank" rel="noopener"
-           class="rounded-lg bg-red-600 hover:bg-red-500 px-6 py-2.5 font-semibold">▶ Play on {{ t.service.name }}</a>
-        {% endif %}
         <button hx-patch="/api/titles/{{ t.id }}/watched" hx-swap="innerHTML"
                 class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-2.5 text-sm">
-          {{ 'Watched ✓' if t.watched else 'Mark watched' }}
+          {{ 'Watched ✓' if group_watched else 'Mark watched' }}
         </button>
-        <button hx-delete="/api/titles/{{ t.id }}" hx-confirm="Remove “{{ t.title }}” from your library?"
+        <button hx-delete="/api/titles/{{ t.id }}" hx-confirm="Remove “{{ t.title }}” (all providers) from your library?"
                 class="rounded-lg bg-zinc-900 hover:bg-red-900/60 px-4 py-2.5 text-sm text-zinc-400">Remove</button>
       </div>
     </div>
