@@ -1,0 +1,31 @@
+{% if titles %}
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+  {% for t in titles %}
+  <a href="/titles/{{ t.id }}" class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 transition">
+    {% if t.poster_url %}
+    <img src="{{ t.poster_url }}" alt="{{ t.title }}" class="w-full aspect-[2/3] object-cover group-hover:opacity-80 transition">
+    {% else %}
+    <div class="w-full aspect-[2/3] flex items-center justify-center p-3 text-center text-sm text-zinc-400">{{ t.title }}</div>
+    {% endif %}
+    <img src="{{ t.service.icon_path }}" alt="{{ t.service.name }}" title="{{ t.service.name }}"
+         class="absolute top-2 right-2 w-7 h-7 rounded-md shadow-lg">
+    {% if t.watched %}
+    <span class="absolute top-2 left-2 bg-emerald-600 text-xs font-semibold px-2 py-0.5 rounded-full">✓</span>
+    {% endif %}
+    <div class="p-2">
+      <p class="text-sm font-medium truncate">{{ t.title }}</p>
+      <p class="text-xs text-zinc-500">{{ t.release_year or '' }}</p>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% elif q %}
+<div class="text-center py-24 text-zinc-500">
+  <p class="text-lg">No titles match “{{ q }}”.</p>
+</div>
+{% else %}
+<div class="text-center py-24 text-zinc-500">
+  <p class="text-lg mb-3">Your library is empty.</p>
+  <a href="/add" class="text-red-400 hover:text-red-300 font-semibold">Add your first title →</a>
+</div>
+{% endif %}

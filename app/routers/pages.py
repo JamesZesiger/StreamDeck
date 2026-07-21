@@ -21,6 +21,7 @@ async def library(
     request: Request,
     service: str | None = None,
     watched: str | None = None,
+    q: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     query = select(Title).options(selectinload(Title.service)).order_by(Title.added_at.desc())
@@ -28,7 +29,15 @@ async def library(
         query = query.join(Service).where(Service.slug == service)
     if watched in ("true", "false"):
         query = query.where(Title.watched == (watched == "true"))
+    if q and q.strip():
+        query = query.where(Title.title.ilike(f"%{q.strip()}%"))
     titles = (await session.execute(query)).scalars().all()
+
+    # htmx search requests swap only the grid
+    if request.headers.get("hx-request") == "true":
+        return templates.TemplateResponse(request, "partials/tile_grid.html",
+                                          {"titles": titles, "q": q})
+
     services = (await session.execute(
         select(Service).where(Service.enabled).order_by(Service.name)
     )).scalars().all()
@@ -37,6 +46,7 @@ async def library(
         "services": services,
         "active_service": service,
         "active_watched": watched,
+        "q": q,
     })
 
 
