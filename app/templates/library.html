@@ -1,25 +1,25 @@
 {% extends "base.html" %}
-{% block content %}
-<div class="flex flex-wrap items-center gap-2 mb-4">
-  <a href="/" class="px-3 py-1 rounded-full text-sm {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</a>
+{% block nav_extra %}
+<div class="flex items-center gap-1.5">
+  <a href="/" title="All services"
+     class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</a>
   {% for s in services %}
-  <a href="/?service={{ s.slug }}" class="px-3 py-1 rounded-full text-sm flex items-center gap-1.5 {{ 'bg-zinc-100 text-zinc-900' if active_service == s.slug else 'bg-zinc-800 hover:bg-zinc-700' }}">
-    <img src="{{ s.icon_path }}" alt="" class="w-4 h-4 rounded">{{ s.name }}
+  <a href="/?service={{ s.slug }}{{ '&watched=' + active_watched if active_watched else '' }}" title="{{ s.name }}"
+     class="p-0.5 rounded-md {{ 'ring-2 ring-red-500' if active_service == s.slug else 'opacity-60 hover:opacity-100' }}">
+    <img src="{{ s.icon_path }}" alt="{{ s.name }}" class="w-6 h-6 rounded">
   </a>
   {% endfor %}
-  <div class="flex-1"></div>
-  <a href="/?watched=false{{ '&service=' + active_service if active_service else '' }}"
-     class="px-3 py-1 rounded-full text-sm {{ 'bg-zinc-100 text-zinc-900' if active_watched == 'false' else 'bg-zinc-800 hover:bg-zinc-700' }}">Unwatched</a>
+  <a href="{{ '/?service=' + active_service if active_service else '/' }}{{ ('&' if active_service else '?') + 'watched=false' if active_watched != 'false' else '' }}"
+     title="Show only unwatched"
+     class="ml-1 px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_watched == 'false' else 'bg-zinc-800 hover:bg-zinc-700' }}">Unwatched</a>
 </div>
-
-<div class="mb-6">
-  <input type="search" name="q" value="{{ q or '' }}" placeholder="Search your library…"
-         hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
-         hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
-         autocomplete="off"
-         class="w-full sm:max-w-md rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-4 py-2">
-</div>
-
+<input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
+       hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
+       hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
+       autocomplete="off"
+       class="w-40 sm:w-64 rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
+{% endblock %}
+{% block content %}
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}
 </div>
