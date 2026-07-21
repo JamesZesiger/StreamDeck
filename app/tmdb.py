@@ -50,6 +50,9 @@ async def discover_by_provider(provider_id: int, media_type: str,
                     "with_watch_providers": provider_id,
                     "watch_region": region,
                     "sort_by": "popularity.desc",
+                    # TMDB popularity is easily gamed by obscure titles; require
+                    # a real audience so "top" means recognizable content.
+                    "vote_count.gte": 200,
                     "page": page,
                 },
             )
