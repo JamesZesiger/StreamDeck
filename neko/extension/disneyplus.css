@@ -1,6 +1,0 @@
-/* Cosmetic only — selectors drift as Disney+ updates its DOM. */
-header,
-nav[aria-label],
-#hudson-wrapper nav {
-  display: none !important;
-}

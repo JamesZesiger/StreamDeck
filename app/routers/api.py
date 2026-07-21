@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import sites
 import tmdb
 from db import get_session
-from models import MediaType, PlaybackMode, Service, Title
+from models import MediaType, Service, Title
 
 router = APIRouter(prefix="/api")
 templates = Jinja2Templates(directory="templates")
@@ -116,17 +116,14 @@ def _msg(text: str, tone: str = "amber") -> Response:
 async def create_site(
     name: str = Form(...),
     base_domain: str = Form(...),
-    playback_mode: str = Form("embedded"),
     username: str = Form(""),
     password: str = Form(""),
     tmdb_provider_id: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
-    if playback_mode not in ("embedded", "deeplink"):
-        playback_mode = "embedded"
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
-        site = sites.add_site(name, base_domain, playback_mode, username, password,
+        site = sites.add_site(name, base_domain, username, password,
                               tmdb_provider_id=provider_id)
     except ValueError as exc:
         return _msg(str(exc))
@@ -135,7 +132,6 @@ async def create_site(
         slug=site["slug"],
         base_domain=site["base_domain"],
         icon_path=site["icon_path"],
-        playback_mode=PlaybackMode(site["playback_mode"]),
     ))
     await session.commit()
     return Response(headers={"HX-Redirect": "/sites"})
@@ -146,18 +142,15 @@ async def edit_site(
     slug: str,
     name: str = Form(...),
     base_domain: str = Form(...),
-    playback_mode: str = Form("embedded"),
     tmdb_provider_id: str = Form(""),
     search_url: str = Form(""),
     username: str = Form(""),
     password: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
-    if playback_mode not in ("embedded", "deeplink"):
-        playback_mode = "embedded"
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
-        site = sites.update_site(slug, name, base_domain, playback_mode,
+        site = sites.update_site(slug, name, base_domain,
                                  provider_id, search_url, username, password)
     except ValueError as exc:
         return _msg(str(exc))
@@ -167,7 +160,6 @@ async def edit_site(
     if service:
         service.name = site["name"]
         service.base_domain = site["base_domain"]
-        service.playback_mode = PlaybackMode(site["playback_mode"])
         await session.commit()
     saved_msg = quote(f"Saved {site['name']}.")
     return Response(headers={"HX-Redirect": f"/sites?msg={saved_msg}"})
