@@ -9,6 +9,10 @@
   </div>
   <p class="text-sm text-zinc-500 mb-6">Stored in <code class="text-zinc-400">config/sites.json</code> (gitignored). Manual edits to the file apply on restart.</p>
 
+  {% if msg %}
+  <p class="mb-6 rounded-lg bg-emerald-900/40 text-emerald-300 text-sm px-4 py-2">{{ msg }}</p>
+  {% endif %}
+
   <div id="add-site" class="hidden mb-8 bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
     <h2 class="font-semibold mb-4">New site</h2>
     <form hx-post="/api/sites" hx-target="#site-form-msg" hx-swap="innerHTML" class="grid sm:grid-cols-2 gap-4">
@@ -72,6 +76,12 @@
               hx-confirm="Add the most popular movies and shows currently on {{ s.name }} (top 20 of each)?"
               hx-disabled-elt="this"
               class="rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 px-3 py-1.5 text-sm shrink-0">Add all</button>
+      {% endif %}
+      {% if s.title_count %}
+      <button hx-delete="/api/sites/{{ s.slug }}/titles"
+              hx-confirm="Remove all {{ s.title_count }} {{ s.name }} title{{ '' if s.title_count == 1 else 's' }} from your library? The site itself is kept."
+              hx-disabled-elt="this"
+              class="rounded-lg bg-zinc-900 hover:bg-red-900/60 disabled:opacity-50 px-3 py-1.5 text-sm text-zinc-400 shrink-0">Remove all</button>
       {% endif %}
     </li>
     {% if s.tmdb_provider_id %}<li id="preload-msg-{{ s.slug }}" class="px-4 empty:hidden"></li>{% endif %}

@@ -1,10 +1,11 @@
 import asyncio
 import html
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import sites
@@ -129,6 +130,19 @@ async def create_site(
     ))
     await session.commit()
     return Response(headers={"HX-Redirect": "/sites"})
+
+
+@router.delete("/sites/{slug}/titles")
+async def remove_all_titles(slug: str, session: AsyncSession = Depends(get_session)):
+    service = (await session.execute(
+        select(Service).where(Service.slug == slug)
+    )).scalar_one_or_none()
+    if not service:
+        raise HTTPException(404, "Unknown site")
+    result = await session.execute(delete(Title).where(Title.service_id == service.id))
+    await session.commit()
+    msg = f"Removed {result.rowcount} title{'' if result.rowcount == 1 else 's'} from {service.name}."
+    return Response(headers={"HX-Redirect": f"/sites?msg={quote(msg)}"})
 
 
 PRELOAD_PER_TYPE = 20  # top-N movies + top-N shows per click
