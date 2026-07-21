@@ -13,7 +13,7 @@
   <p class="mb-6 rounded-lg bg-emerald-900/40 text-emerald-300 text-sm px-4 py-2">{{ msg }}</p>
   {% endif %}
 
-  <div id="add-site" class="hidden mb-8 bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+  <div id="add-site" class="{{ '' if show_add else 'hidden' }} mb-8 bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
     <h2 class="font-semibold mb-4">New site</h2>
     <form hx-post="/api/sites" hx-target="#site-form-msg" hx-swap="innerHTML" class="grid sm:grid-cols-2 gap-4">
       <div>

@@ -59,7 +59,7 @@ async def add_page(request: Request, session: AsyncSession = Depends(get_session
 
 
 @router.get("/sites")
-async def sites_page(request: Request, msg: str | None = None,
+async def sites_page(request: Request, msg: str | None = None, add: str | None = None,
                      session: AsyncSession = Depends(get_session)):
     title_counts = dict((await session.execute(
         select(Service.slug, func.count(Title.id))
@@ -76,7 +76,9 @@ async def sites_page(request: Request, msg: str | None = None,
         "title_count": title_counts.get(s["slug"], 0),
         "tmdb_provider_id": s.get("tmdb_provider_id"),
     } for s in sites.load_sites()]
-    return templates.TemplateResponse(request, "sites.html", {"sites": site_rows, "msg": msg})
+    return templates.TemplateResponse(request, "sites.html", {
+        "sites": site_rows, "msg": msg, "show_add": bool(add),
+    })
 
 
 @router.get("/icons/{slug}.svg")

@@ -10,17 +10,29 @@
 <body class="bg-zinc-950 text-zinc-100 min-h-screen">
   {% block nav %}
   <nav class="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur border-b border-zinc-800">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <a href="/" class="text-xl font-bold tracking-tight shrink-0">Stream<span class="text-red-500">Deck</span></a>
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+      <a href="/" class="text-xl font-bold tracking-tight shrink-0 mr-auto">Stream<span class="text-red-500">Deck</span></a>
       {% block nav_extra %}{% endblock %}
-      <div class="flex-1"></div>
       <a href="/sites" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Sites</a>
-      <a href="/add" class="rounded-lg bg-red-600 hover:bg-red-500 px-4 py-1.5 text-sm font-semibold">+ Add title</a>
+      <details class="relative" id="add-menu">
+        <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none rounded-lg bg-red-600 hover:bg-red-500 px-4 py-1.5 text-sm font-semibold">+ Add</summary>
+        <div class="absolute right-0 mt-2 w-36 rounded-xl bg-zinc-900 ring-1 ring-zinc-700 shadow-2xl overflow-hidden z-50">
+          <a href="/add" class="block px-4 py-2 text-sm hover:bg-zinc-800">Add title</a>
+          <a href="/sites?add=1" class="block px-4 py-2 text-sm hover:bg-zinc-800">Add site</a>
+        </div>
+      </details>
     </div>
   </nav>
   {% endblock %}
   <main class="{% block main_class %}max-w-7xl mx-auto px-4 py-6{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <script>
+    document.addEventListener('click', (e) => {
+      document.querySelectorAll('details[open]').forEach((d) => {
+        if (!d.contains(e.target)) d.removeAttribute('open');
+      });
+    });
+  </script>
 </body>
 </html>
