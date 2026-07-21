@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}StreamDeck{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen">
+  {% block nav %}
+  <nav class="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur border-b border-zinc-800">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-6">
+      <a href="/" class="text-xl font-bold tracking-tight">Stream<span class="text-red-500">Deck</span></a>
+      <div class="flex-1"></div>
+      <a href="/add" class="rounded-lg bg-red-600 hover:bg-red-500 px-4 py-1.5 text-sm font-semibold">+ Add title</a>
+    </div>
+  </nav>
+  {% endblock %}
+  <main class="{% block main_class %}max-w-7xl mx-auto px-4 py-6{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,7 @@
+/* Cosmetic only — selectors drift as Netflix updates its DOM; failures just
+   mean the normal site shows. The /watch player is already chromeless. */
+.pinning-header,
+[data-uia="header"],
+#appMountPoint nav {
+  display: none !important;
+}

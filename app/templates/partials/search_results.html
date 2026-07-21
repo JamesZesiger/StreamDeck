@@ -1,0 +1,36 @@
+{% if service %}
+<p class="text-sm text-zinc-400 mb-3 flex items-center gap-2">
+  <img src="{{ service.icon_path }}" alt="" class="w-5 h-5 rounded">
+  Detected service: <span class="text-zinc-200 font-medium">{{ service.name }}</span>
+</p>
+{% else %}
+<p class="text-sm text-amber-400 mb-3">Couldn't detect the service from that link — check the URL.</p>
+{% endif %}
+
+{% if results and service %}
+<ul class="space-y-3">
+  {% for r in results %}
+  <li>
+    <form hx-post="/api/titles" class="flex gap-4 items-center bg-zinc-900 rounded-xl p-3 ring-1 ring-zinc-800">
+      <input type="hidden" name="url" value="{{ url }}">
+      <input type="hidden" name="service_id" value="{{ service.id }}">
+      <input type="hidden" name="tmdb_id" value="{{ r.tmdb_id }}">
+      <input type="hidden" name="media_type" value="{{ r.media_type }}">
+      {% if r.poster_url %}
+      <img src="{{ r.poster_url }}" alt="" class="w-14 rounded-md">
+      {% else %}
+      <div class="w-14 h-20 rounded-md bg-zinc-800"></div>
+      {% endif %}
+      <div class="flex-1 min-w-0">
+        <p class="font-medium truncate">{{ r.title }} <span class="text-zinc-500 font-normal">{{ '(' ~ r.year ~ ')' if r.year }}</span></p>
+        <p class="text-xs text-zinc-500 uppercase">{{ 'Series' if r.media_type == 'tv' else 'Movie' }}</p>
+        <p class="text-sm text-zinc-400 line-clamp-2">{{ r.overview }}</p>
+      </div>
+      <button type="submit" class="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white px-4 py-1.5 text-sm font-semibold shrink-0">Add</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% elif service %}
+<p class="text-sm text-zinc-500">No matches found — try a different search.</p>
+{% endif %}

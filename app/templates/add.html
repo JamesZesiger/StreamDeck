@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Add title — StreamDeck{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <h1 class="text-2xl font-bold mb-1">Add a title</h1>
+  <p class="text-sm text-zinc-500 mb-6">Paste the title's link from the streaming service, then search for it to attach artwork and details.</p>
+
+  <form hx-post="/api/resolve-url" hx-target="#results" hx-swap="innerHTML" class="space-y-4">
+    <div>
+      <label class="block text-sm text-zinc-400 mb-1">Streaming link</label>
+      <input name="url" type="url" required placeholder="https://www.netflix.com/title/81217399"
+             class="w-full rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm text-zinc-400 mb-1">Search title</label>
+      <div class="flex gap-2">
+        <input name="query" type="text" required placeholder="e.g. The Bear"
+               class="flex-1 rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        <button type="submit" class="rounded-lg bg-red-600 hover:bg-red-500 px-5 py-2 font-semibold">Search</button>
+      </div>
+    </div>
+  </form>
+
+  <div id="results" class="mt-6"></div>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+/* Cosmetic only — selectors drift as Hulu updates its DOM. */
+.navigation,
+#site-header,
+header[role="banner"] {
+  display: none !important;
+}

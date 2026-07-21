@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "StreamDeck chrome-hider",
+  "version": "0.1.0",
+  "description": "Hides streaming-site navigation chrome so only the player is prominent. Cosmetic CSS only.",
+  "content_scripts": [
+    {
+      "matches": ["*://*.netflix.com/*"],
+      "css": ["netflix.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.disneyplus.com/*"],
+      "css": ["disneyplus.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.hulu.com/*"],
+      "css": ["hulu.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
