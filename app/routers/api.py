@@ -1,13 +1,14 @@
+import html
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import sites
 import tmdb
-from config import service_credentials
 from db import get_session
-from models import MediaType, Service, Title
-from services_registry import detect_service_slug
+from models import MediaType, PlaybackMode, Service, Title
 
 router = APIRouter(prefix="/api")
 templates = Jinja2Templates(directory="templates")
@@ -20,7 +21,7 @@ async def resolve_url(
     query: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
-    slug = detect_service_slug(url)
+    slug = sites.detect_service_slug(url)
     service = None
     if slug:
         service = (await session.execute(
@@ -86,7 +87,36 @@ async def delete_title(title_id: int, session: AsyncSession = Depends(get_sessio
 
 @router.get("/credentials/{slug}")
 async def credentials(request: Request, slug: str):
-    creds = service_credentials(slug)
+    creds = sites.get_credentials(slug)
     if not creds:
         raise HTTPException(404, "No credentials configured for this service")
     return templates.TemplateResponse(request, "partials/credentials.html", {"creds": creds})
+
+
+@router.post("/sites")
+async def create_site(
+    name: str = Form(...),
+    base_domain: str = Form(...),
+    playback_mode: str = Form("embedded"),
+    username: str = Form(""),
+    password: str = Form(""),
+    session: AsyncSession = Depends(get_session),
+):
+    if playback_mode not in ("embedded", "deeplink"):
+        playback_mode = "embedded"
+    try:
+        site = sites.add_site(name, base_domain, playback_mode, username, password)
+    except ValueError as exc:
+        return Response(
+            content=f'<p class="text-sm text-amber-400">{html.escape(str(exc))}</p>',
+            media_type="text/html",
+        )
+    session.add(Service(
+        name=site["name"],
+        slug=site["slug"],
+        base_domain=site["base_domain"],
+        icon_path=site["icon_path"],
+        playback_mode=PlaybackMode(site["playback_mode"]),
+    ))
+    await session.commit()
+    return Response(headers={"HX-Redirect": "/sites"})

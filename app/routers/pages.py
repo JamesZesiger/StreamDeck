@@ -1,13 +1,14 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import neko_client
-from config import service_credentials, settings
+import sites
+from config import settings
 from db import get_session
 from models import PlaybackMode, Service, Title
 
@@ -47,6 +48,34 @@ async def add_page(request: Request, session: AsyncSession = Depends(get_session
     return templates.TemplateResponse(request, "add.html", {"services": services})
 
 
+@router.get("/sites")
+async def sites_page(request: Request, session: AsyncSession = Depends(get_session)):
+    title_counts = dict((await session.execute(
+        select(Service.slug, func.count(Title.id))
+        .outerjoin(Title).group_by(Service.slug)
+    )).all())
+    site_rows = [{
+        "name": s["name"],
+        "slug": s["slug"],
+        "base_domain": s["base_domain"],
+        "icon_path": s["icon_path"],
+        "playback_mode": s["playback_mode"],
+        "username": s.get("username", ""),
+        "password_set": bool(s.get("password")),
+        "title_count": title_counts.get(s["slug"], 0),
+    } for s in sites.load_sites()]
+    return templates.TemplateResponse(request, "sites.html", {"sites": site_rows})
+
+
+@router.get("/icons/{slug}.svg")
+async def site_icon(slug: str):
+    site = sites.get_site(slug)
+    if not site:
+        raise HTTPException(404)
+    return Response(content=sites.icon_svg(site["slug"], site["name"]),
+                    media_type="image/svg+xml")
+
+
 async def _get_title(title_id: int, session: AsyncSession) -> Title:
     title = (await session.execute(
         select(Title).options(selectinload(Title.service)).where(Title.id == title_id)
@@ -80,5 +109,5 @@ async def play(request: Request, title_id: int, session: AsyncSession = Depends(
         "navigated": navigated,
         "neko_url": settings.neko_public_url,
         "neko_password": settings.neko_user_password,
-        "has_credentials": service_credentials(title.service.slug) is not None,
+        "has_credentials": sites.get_credentials(title.service.slug) is not None,
     })

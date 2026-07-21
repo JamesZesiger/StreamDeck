@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Sites — StreamDeck{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <div class="flex items-center gap-4 mb-1">
+    <h1 class="text-2xl font-bold flex-1">Sites</h1>
+    <button onclick="document.getElementById('add-site').classList.toggle('hidden'); this.blur()"
+            class="rounded-lg bg-red-600 hover:bg-red-500 px-4 py-1.5 text-sm font-semibold">+ Add custom site</button>
+  </div>
+  <p class="text-sm text-zinc-500 mb-6">Stored in <code class="text-zinc-400">config/sites.json</code> (gitignored). Manual edits to the file apply on restart.</p>
+
+  <div id="add-site" class="hidden mb-8 bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+    <h2 class="font-semibold mb-4">New site</h2>
+    <form hx-post="/api/sites" hx-target="#site-form-msg" hx-swap="innerHTML" class="grid sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">Name</label>
+        <input name="name" required placeholder="Crunchyroll"
+               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+      </div>
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">Base domain</label>
+        <input name="base_domain" required placeholder="crunchyroll.com"
+               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+      </div>
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">Playback</label>
+        <select name="playback_mode"
+                class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+          <option value="embedded">Embedded (streamed browser)</option>
+          <option value="deeplink">Deep link (local browser)</option>
+        </select>
+      </div>
+      <div></div>
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">Username <span class="text-zinc-600">(optional)</span></label>
+        <input name="username" autocomplete="off"
+               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+      </div>
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">Password <span class="text-zinc-600">(optional)</span></label>
+        <input name="password" type="password" autocomplete="new-password"
+               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+      </div>
+      <div class="sm:col-span-2 flex items-center gap-4">
+        <button type="submit" class="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white px-5 py-2 text-sm font-semibold">Save site</button>
+        <div id="site-form-msg"></div>
+      </div>
+    </form>
+  </div>
+
+  <ul class="space-y-2">
+    {% for s in sites %}
+    <li class="flex items-center gap-4 bg-zinc-900 ring-1 ring-zinc-800 rounded-xl px-4 py-3">
+      <img src="{{ s.icon_path }}" alt="" class="w-9 h-9 rounded-md">
+      <div class="flex-1 min-w-0">
+        <p class="font-medium">{{ s.name }}</p>
+        <p class="text-xs text-zinc-500">{{ s.base_domain }} · {{ s.title_count }} title{{ '' if s.title_count == 1 else 's' }}</p>
+      </div>
+      <span class="text-xs px-2 py-1 rounded-full {{ 'bg-red-900/50 text-red-300' if s.playback_mode == 'embedded' else 'bg-sky-900/50 text-sky-300' }}">
+        {{ 'Embedded' if s.playback_mode == 'embedded' else 'Deep link' }}
+      </span>
+      <span class="text-xs text-zinc-500 w-32 truncate text-right" title="{{ s.username }}">
+        {% if s.username or s.password_set %}{{ s.username or '(no username)' }}{% if s.password_set %} · ••••{% endif %}
+        {% else %}no credentials{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

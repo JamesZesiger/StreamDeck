@@ -29,7 +29,10 @@ docker compose up -d --build
    service, sign in inside the stream (cookies persist). Quality caps ~720p (Widevine L3).
 3. **Play (best quality)** — every title also has *Open in browser*, which deep-links the
    title into your local browser tab.
-4. Per-service playback mode (`embedded` vs `deeplink`) lives in the `services` table.
+4. **Sites** — the *Sites* page lists all configured services and has an *Add custom site*
+   button (name, domain, playback mode, optional credentials). The site list and credentials
+   live in `config/sites.json` (gitignored, created on first startup); manual edits apply on
+   restart.
 
 Optional: enable auto-navigation on Play (the app steering the streamed browser to the title)
 — see [neko/README.md](neko/README.md).

@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
+import sites
 from db import SessionLocal, engine
 from models import Base, PlaybackMode, Service
 from routers import api, pages
-from services_registry import SEED_SERVICES
 
 log = logging.getLogger(__name__)
 
@@ -25,16 +25,24 @@ async def _init_db(retries: int = 10) -> None:
                 raise
             await asyncio.sleep(2)
 
+    # sites.json is the source of truth for the site list; sync it into the
+    # services table so titles can keep their FK. Credentials stay in the JSON.
     async with SessionLocal() as session:
-        existing = set((await session.execute(select(Service.slug))).scalars())
-        for seed in SEED_SERVICES:
-            if seed["slug"] not in existing:
+        rows = {s.slug: s for s in (await session.execute(select(Service))).scalars()}
+        for site in sites.load_sites():
+            row = rows.get(site["slug"])
+            if row:
+                row.name = site["name"]
+                row.base_domain = site["base_domain"]
+                row.icon_path = site["icon_path"]
+                row.playback_mode = PlaybackMode(site["playback_mode"])
+            else:
                 session.add(Service(
-                    name=seed["name"],
-                    slug=seed["slug"],
-                    base_domain=seed["base_domain"],
-                    icon_path=seed["icon_path"],
-                    playback_mode=PlaybackMode(seed["playback_mode"]),
+                    name=site["name"],
+                    slug=site["slug"],
+                    base_domain=site["base_domain"],
+                    icon_path=site["icon_path"],
+                    playback_mode=PlaybackMode(site["playback_mode"]),
                 ))
         await session.commit()
 

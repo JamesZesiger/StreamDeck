@@ -11,6 +11,9 @@ services:
       NEKO_USER_PASSWORD: ${NEKO_USER_PASSWORD}
     env_file:
       - .env
+    volumes:
+      # Site list + credentials (config/sites.json) — created on first startup.
+      - ./config:/data
     depends_on:
       db:
         condition: service_healthy
