@@ -35,6 +35,33 @@ async def search_multi(query: str) -> list[dict]:
     return results
 
 
+async def discover_by_provider(provider_id: int, media_type: str,
+                               limit: int = 20, region: str = "US") -> list[int]:
+    """Most popular titles currently on a watch provider (JustWatch data via
+    TMDB) — returns TMDB ids, most popular first. No streaming site is touched."""
+    ids: list[int] = []
+    page = 1
+    async with httpx.AsyncClient(timeout=15) as client:
+        while len(ids) < limit and page <= 5:
+            r = await client.get(
+                f"{BASE}/discover/{media_type}",
+                params={
+                    "api_key": settings.tmdb_api_key,
+                    "with_watch_providers": provider_id,
+                    "watch_region": region,
+                    "sort_by": "popularity.desc",
+                    "page": page,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            ids.extend(item["id"] for item in data.get("results", []))
+            if page >= data.get("total_pages", 1):
+                break
+            page += 1
+    return ids[:limit]
+
+
 async def get_details(tmdb_id: int, media_type: str) -> dict:
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(

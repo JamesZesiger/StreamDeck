@@ -17,26 +17,37 @@ from urllib.parse import urlparse
 
 from config import settings
 
+# tmdb_provider_id: TMDB/JustWatch watch-provider id, used by the "Add all"
+# preload (discover popular titles on that provider). search_url: template for
+# deep links when the exact title URL is unknown (preloaded titles).
 DEFAULT_SITES = [
     {"name": "Netflix", "slug": "netflix", "base_domain": "netflix.com",
      "icon_path": "/static/icons/netflix.svg", "playback_mode": "embedded",
-     "username": "", "password": ""},
+     "username": "", "password": "", "tmdb_provider_id": 8,
+     "search_url": "https://www.netflix.com/search?q={query}"},
     {"name": "Disney+", "slug": "disneyplus", "base_domain": "disneyplus.com",
      "icon_path": "/static/icons/disneyplus.svg", "playback_mode": "embedded",
-     "username": "", "password": ""},
+     "username": "", "password": "", "tmdb_provider_id": 337,
+     "search_url": "https://www.disneyplus.com/search?q={query}"},
     {"name": "Hulu", "slug": "hulu", "base_domain": "hulu.com",
      "icon_path": "/static/icons/hulu.svg", "playback_mode": "embedded",
-     "username": "", "password": ""},
+     "username": "", "password": "", "tmdb_provider_id": 15,
+     "search_url": "https://www.hulu.com/search?q={query}"},
     {"name": "Prime Video", "slug": "primevideo", "base_domain": "primevideo.com",
      "icon_path": "/static/icons/primevideo.svg", "playback_mode": "embedded",
-     "username": "", "password": ""},
+     "username": "", "password": "", "tmdb_provider_id": 9,
+     "search_url": "https://www.primevideo.com/search?phrase={query}"},
     {"name": "Max", "slug": "max", "base_domain": "max.com",
      "icon_path": "/static/icons/max.svg", "playback_mode": "embedded",
-     "username": "", "password": ""},
+     "username": "", "password": "", "tmdb_provider_id": 1899,
+     "search_url": "https://play.max.com/search?q={query}"},
     {"name": "YouTube", "slug": "youtube", "base_domain": "youtube.com",
      "icon_path": "/static/icons/youtube.svg", "playback_mode": "deeplink",
-     "username": "", "password": ""},
+     "username": "", "password": "", "tmdb_provider_id": None,
+     "search_url": "https://www.youtube.com/results?search_query={query}"},
 ]
+
+_DEFAULTS_BY_SLUG = {s["slug"]: s for s in DEFAULT_SITES}
 
 ALT_DOMAINS = {
     "amazon.com": "primevideo",
@@ -58,7 +69,19 @@ def load_sites() -> list[dict]:
         save_sites([dict(s) for s in DEFAULT_SITES])
         return [dict(s) for s in DEFAULT_SITES]
     with p.open() as f:
-        return json.load(f).get("sites", [])
+        raw = json.load(f).get("sites", [])
+    # Backfill fields added after the file was created (e.g. tmdb_provider_id)
+    # from the shipped defaults, without clobbering stored values.
+    merged = []
+    for s in raw:
+        base = dict(_DEFAULTS_BY_SLUG.get(s["slug"], {}))
+        base.update({k: v for k, v in s.items() if v not in (None, "")})
+        base.setdefault("tmdb_provider_id", None)
+        base.setdefault("search_url", f"https://www.{base['base_domain']}")
+        base.setdefault("username", "")
+        base.setdefault("password", "")
+        merged.append(base)
+    return merged
 
 
 def save_sites(sites: list[dict]) -> None:
@@ -79,7 +102,8 @@ def slugify(name: str) -> str:
 
 
 def add_site(name: str, base_domain: str, playback_mode: str,
-             username: str = "", password: str = "") -> dict:
+             username: str = "", password: str = "",
+             tmdb_provider_id: int | None = None) -> dict:
     name = name.strip()
     slug = slugify(name)
     if not slug:
@@ -100,10 +124,20 @@ def add_site(name: str, base_domain: str, playback_mode: str,
         "playback_mode": playback_mode,
         "username": username,
         "password": password,
+        "tmdb_provider_id": tmdb_provider_id,
+        "search_url": f"https://www.{domain}",
     }
     sites.append(site)
     save_sites(sites)
     return site
+
+
+def title_search_link(site: dict, query: str) -> str:
+    """Deep link for a title whose exact URL we don't know: the site's search
+    page for that title (or just the site) — never a scraped URL."""
+    from urllib.parse import quote_plus
+    tmpl = site.get("search_url") or f"https://www.{site['base_domain']}"
+    return tmpl.replace("{query}", quote_plus(query)) if "{query}" in tmpl else tmpl
 
 
 def get_credentials(slug: str) -> dict[str, str] | None:

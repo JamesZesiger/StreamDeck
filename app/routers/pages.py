@@ -63,6 +63,7 @@ async def sites_page(request: Request, session: AsyncSession = Depends(get_sessi
         "username": s.get("username", ""),
         "password_set": bool(s.get("password")),
         "title_count": title_counts.get(s["slug"], 0),
+        "tmdb_provider_id": s.get("tmdb_provider_id"),
     } for s in sites.load_sites()]
     return templates.TemplateResponse(request, "sites.html", {"sites": site_rows})
 

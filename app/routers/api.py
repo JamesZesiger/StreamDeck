@@ -1,5 +1,7 @@
+import asyncio
 import html
 
+import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -93,6 +95,13 @@ async def credentials(request: Request, slug: str):
     return templates.TemplateResponse(request, "partials/credentials.html", {"creds": creds})
 
 
+def _msg(text: str, tone: str = "amber") -> Response:
+    return Response(
+        content=f'<p class="text-sm text-{tone}-400">{html.escape(text)}</p>',
+        media_type="text/html",
+    )
+
+
 @router.post("/sites")
 async def create_site(
     name: str = Form(...),
@@ -100,17 +109,17 @@ async def create_site(
     playback_mode: str = Form("embedded"),
     username: str = Form(""),
     password: str = Form(""),
+    tmdb_provider_id: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
     if playback_mode not in ("embedded", "deeplink"):
         playback_mode = "embedded"
+    provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
-        site = sites.add_site(name, base_domain, playback_mode, username, password)
+        site = sites.add_site(name, base_domain, playback_mode, username, password,
+                              tmdb_provider_id=provider_id)
     except ValueError as exc:
-        return Response(
-            content=f'<p class="text-sm text-amber-400">{html.escape(str(exc))}</p>',
-            media_type="text/html",
-        )
+        return _msg(str(exc))
     session.add(Service(
         name=site["name"],
         slug=site["slug"],
@@ -120,3 +129,59 @@ async def create_site(
     ))
     await session.commit()
     return Response(headers={"HX-Redirect": "/sites"})
+
+
+PRELOAD_PER_TYPE = 20  # top-N movies + top-N shows per click
+
+
+@router.post("/sites/{slug}/preload")
+async def preload_site(slug: str, session: AsyncSession = Depends(get_session)):
+    site = sites.get_site(slug)
+    if not site:
+        raise HTTPException(404, "Unknown site")
+    provider_id = site.get("tmdb_provider_id")
+    if not provider_id:
+        return _msg("No TMDB provider id configured for this site.")
+    service = (await session.execute(
+        select(Service).where(Service.slug == slug)
+    )).scalar_one_or_none()
+    if not service:
+        return _msg("Site not synced to the database yet — restart the app.")
+
+    existing = {(t.tmdb_id, t.media_type.value) for t in (await session.execute(
+        select(Title).where(Title.service_id == service.id)
+    )).scalars()}
+
+    sem = asyncio.Semaphore(8)
+
+    async def fetch(tmdb_id: int, media_type: str) -> dict:
+        async with sem:
+            return await tmdb.get_details(tmdb_id, media_type)
+
+    added = skipped = 0
+    try:
+        for media_type in ("movie", "tv"):
+            ids = await tmdb.discover_by_provider(provider_id, media_type,
+                                                  limit=PRELOAD_PER_TYPE)
+            fresh = [i for i in ids if (i, media_type) not in existing]
+            skipped += len(ids) - len(fresh)
+            details = await asyncio.gather(*(fetch(i, media_type) for i in fresh))
+            for d in details:
+                session.add(Title(
+                    service_id=service.id,
+                    tmdb_id=d["tmdb_id"],
+                    media_type=MediaType(d["media_type"]),
+                    title=d["title"],
+                    overview=d["overview"],
+                    poster_url=d["poster_url"],
+                    backdrop_url=d["backdrop_url"],
+                    runtime_minutes=d["runtime_minutes"],
+                    release_year=d["release_year"],
+                    deep_link=sites.title_search_link(site, d["title"]),
+                ))
+                added += 1
+    except httpx.HTTPStatusError as exc:
+        return _msg(f"TMDB request failed ({exc.response.status_code}) — check TMDB_API_KEY.")
+    await session.commit()
+    return _msg(f"Added {added} titles" + (f", {skipped} already in library" if skipped else ""),
+                tone="emerald")
