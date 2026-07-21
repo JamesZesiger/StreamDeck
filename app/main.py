@@ -2,14 +2,13 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-import nav_hub
 import sites
 from db import SessionLocal, engine
-from models import Base, PlaybackMode, Service
+from models import Base, Service
 from routers import api, pages
 
 log = logging.getLogger(__name__)
@@ -20,6 +19,11 @@ async def _init_db(retries: int = 10) -> None:
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+                # No Alembic: create_all won't drop removed columns, so retire
+                # the old neko-era playback_mode column (and its enum type) here.
+                await conn.execute(text(
+                    "ALTER TABLE services DROP COLUMN IF EXISTS playback_mode"))
+                await conn.execute(text("DROP TYPE IF EXISTS playback_mode"))
             break
         except Exception:
             if attempt == retries - 1:
@@ -36,14 +40,12 @@ async def _init_db(retries: int = 10) -> None:
                 row.name = site["name"]
                 row.base_domain = site["base_domain"]
                 row.icon_path = site["icon_path"]
-                row.playback_mode = PlaybackMode(site["playback_mode"])
             else:
                 session.add(Service(
                     name=site["name"],
                     slug=site["slug"],
                     base_domain=site["base_domain"],
                     icon_path=site["icon_path"],
-                    playback_mode=PlaybackMode(site["playback_mode"]),
                 ))
         await session.commit()
 
@@ -63,8 +65,3 @@ app.include_router(api.router)
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
-
-
-@app.websocket("/ws/nav")
-async def ws_nav(websocket: WebSocket):
-    await nav_hub.register(websocket)

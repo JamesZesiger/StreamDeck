@@ -9,11 +9,6 @@ class Base(DeclarativeBase):
     pass
 
 
-class PlaybackMode(str, enum.Enum):
-    embedded = "embedded"
-    deeplink = "deeplink"
-
-
 class MediaType(str, enum.Enum):
     movie = "movie"
     tv = "tv"
@@ -27,9 +22,6 @@ class Service(Base):
     slug: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     base_domain: Mapped[str] = mapped_column(String(100))
     icon_path: Mapped[str] = mapped_column(String(200), default="")
-    playback_mode: Mapped[PlaybackMode] = mapped_column(
-        Enum(PlaybackMode, name="playback_mode"), default=PlaybackMode.embedded
-    )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     titles: Mapped[list["Title"]] = relationship(back_populates="service")

@@ -22,28 +22,22 @@ from config import settings
 # deep links when the exact title URL is unknown (preloaded titles).
 DEFAULT_SITES = [
     {"name": "Netflix", "slug": "netflix", "base_domain": "netflix.com",
-     "icon_path": "/static/icons/netflix.svg", "playback_mode": "embedded",
-     "username": "", "password": "", "tmdb_provider_id": 8,
+     "icon_path": "/static/icons/netflix.svg",     "username": "", "password": "", "tmdb_provider_id": 8,
      "search_url": "https://www.netflix.com/search?q={query}"},
     {"name": "Disney+", "slug": "disneyplus", "base_domain": "disneyplus.com",
-     "icon_path": "/static/icons/disneyplus.svg", "playback_mode": "embedded",
-     "username": "", "password": "", "tmdb_provider_id": 337,
+     "icon_path": "/static/icons/disneyplus.svg",     "username": "", "password": "", "tmdb_provider_id": 337,
      "search_url": "https://www.disneyplus.com/search?q={query}"},
     {"name": "Hulu", "slug": "hulu", "base_domain": "hulu.com",
-     "icon_path": "/static/icons/hulu.svg", "playback_mode": "embedded",
-     "username": "", "password": "", "tmdb_provider_id": 15,
+     "icon_path": "/static/icons/hulu.svg",     "username": "", "password": "", "tmdb_provider_id": 15,
      "search_url": "https://www.hulu.com/search?q={query}"},
     {"name": "Prime Video", "slug": "primevideo", "base_domain": "primevideo.com",
-     "icon_path": "/static/icons/primevideo.svg", "playback_mode": "embedded",
-     "username": "", "password": "", "tmdb_provider_id": 9,
+     "icon_path": "/static/icons/primevideo.svg",     "username": "", "password": "", "tmdb_provider_id": 9,
      "search_url": "https://www.primevideo.com/search?phrase={query}"},
     {"name": "Max", "slug": "max", "base_domain": "max.com",
-     "icon_path": "/static/icons/max.svg", "playback_mode": "embedded",
-     "username": "", "password": "", "tmdb_provider_id": 1899,
+     "icon_path": "/static/icons/max.svg",     "username": "", "password": "", "tmdb_provider_id": 1899,
      "search_url": "https://play.max.com/search?q={query}"},
     {"name": "YouTube", "slug": "youtube", "base_domain": "youtube.com",
-     "icon_path": "/static/icons/youtube.svg", "playback_mode": "deeplink",
-     "username": "", "password": "", "tmdb_provider_id": None,
+     "icon_path": "/static/icons/youtube.svg",     "username": "", "password": "", "tmdb_provider_id": None,
      "search_url": "https://www.youtube.com/results?search_query={query}"},
 ]
 
@@ -110,7 +104,7 @@ def _clean_domain(base_domain: str) -> str:
     return domain
 
 
-def add_site(name: str, base_domain: str, playback_mode: str,
+def add_site(name: str, base_domain: str,
              username: str = "", password: str = "",
              tmdb_provider_id: int | None = None) -> dict:
     name = name.strip()
@@ -126,7 +120,6 @@ def add_site(name: str, base_domain: str, playback_mode: str,
         "slug": slug,
         "base_domain": domain,
         "icon_path": f"/icons/{slug}.svg",
-        "playback_mode": playback_mode,
         "username": username,
         "password": password,
         "tmdb_provider_id": tmdb_provider_id,
@@ -137,7 +130,7 @@ def add_site(name: str, base_domain: str, playback_mode: str,
     return site
 
 
-def update_site(slug: str, name: str, base_domain: str, playback_mode: str,
+def update_site(slug: str, name: str, base_domain: str,
                 tmdb_provider_id: int | None, search_url: str,
                 username: str, password: str) -> dict:
     """Update a site in place. Slug is the identity and never changes; a blank
@@ -149,7 +142,6 @@ def update_site(slug: str, name: str, base_domain: str, playback_mode: str,
         if name.strip():
             s["name"] = name.strip()
         s["base_domain"] = _clean_domain(base_domain)
-        s["playback_mode"] = playback_mode
         s["tmdb_provider_id"] = tmdb_provider_id
         if search_url.strip():
             s["search_url"] = search_url.strip()

@@ -1,17 +1,12 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-import nav_hub
-import neko_client
 import sites
-from config import settings
 from db import get_session
-from models import PlaybackMode, Service, Title
+from models import Service, Title
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -95,7 +90,6 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         "slug": s["slug"],
         "base_domain": s["base_domain"],
         "icon_path": s["icon_path"],
-        "playback_mode": s["playback_mode"],
         "username": s.get("username", ""),
         "password_set": bool(s.get("password")),
         "title_count": title_counts.get(s["slug"], 0),
@@ -137,26 +131,4 @@ async def detail(request: Request, title_id: int, session: AsyncSession = Depend
         "t": title,
         "providers": providers,
         "group_watched": any(r.watched for r in providers),
-    })
-
-
-@router.get("/titles/{title_id}/play")
-async def play(request: Request, title_id: int, session: AsyncSession = Depends(get_session)):
-    title = await _get_title(title_id, session)
-    if title.service.playback_mode != PlaybackMode.embedded:
-        raise HTTPException(400, "This service uses deep-link playback")
-
-    # Primary: extension WebSocket hub. Fallback: CDP (unreliable on modern
-    # headful Chromium, kept for older neko images).
-    navigated = (await nav_hub.broadcast_navigate(title.deep_link)
-                 or await neko_client.navigate(title.deep_link))
-    title.last_played_at = datetime.now(timezone.utc)
-    await session.commit()
-
-    return templates.TemplateResponse(request, "player.html", {
-        "t": title,
-        "navigated": navigated,
-        "neko_url": settings.neko_public_url,
-        "neko_password": settings.neko_user_password,
-        "has_credentials": sites.get_credentials(title.service.slug) is not None,
     })
