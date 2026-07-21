@@ -83,8 +83,13 @@
               hx-disabled-elt="this"
               class="rounded-lg bg-zinc-900 hover:bg-red-900/60 disabled:opacity-50 px-3 py-1.5 text-sm text-zinc-400 shrink-0">Remove all</button>
       {% endif %}
-      <button onclick="document.getElementById('edit-{{ s.slug }}').classList.toggle('hidden')"
-              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm shrink-0">Edit</button>
+      <button onclick="document.getElementById('edit-{{ s.slug }}').classList.toggle('hidden'); this.classList.toggle('rotate-90')"
+              title="Edit {{ s.name }}" aria-label="Edit {{ s.name }}"
+              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 p-1.5 shrink-0 transition-transform duration-200">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 text-zinc-300">
+          <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clip-rule="evenodd"/>
+        </svg>
+      </button>
     </li>
     <li id="edit-{{ s.slug }}" class="hidden bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
       <form hx-post="/api/sites/{{ s.slug }}/edit" hx-target="#edit-msg-{{ s.slug }}" hx-swap="innerHTML"
