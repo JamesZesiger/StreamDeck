@@ -13,8 +13,17 @@
      title="Show only unwatched"
      class="ml-1 px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_watched == 'false' else 'bg-zinc-800 hover:bg-zinc-700' }}">Unwatched</a>
 </div>
+<select name="sort" title="Sort library"
+        hx-get="/" hx-trigger="change" hx-target="#tile-grid" hx-swap="innerHTML"
+        hx-include="[name='q']"
+        hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
+        class="rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1.5 text-sm">
+  <option value="title" {{ 'selected' if sort != 'added' }}>A–Z</option>
+  <option value="added" {{ 'selected' if sort == 'added' }}>Recently added</option>
+</select>
 <input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
        hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
+       hx-include="[name='sort']"
        hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
        autocomplete="off"
        class="w-40 sm:w-64 rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">

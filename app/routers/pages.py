@@ -22,6 +22,7 @@ async def library(
     service: str | None = None,
     watched: str | None = None,
     q: str | None = None,
+    sort: str = "title",
     session: AsyncSession = Depends(get_session),
 ):
     query = select(Title).options(selectinload(Title.service)).order_by(Title.added_at.desc())
@@ -47,7 +48,13 @@ async def library(
             "watched": any(r.watched for r in rows),
             "added": max(r.added_at for r in rows),
         })
-    groups.sort(key=lambda g: g["added"], reverse=True)
+    # Stable sorts: the later sort is the primary key, the earlier the tiebreak.
+    if sort == "added":
+        groups.sort(key=lambda g: g["primary"].title.lower())
+        groups.sort(key=lambda g: g["added"], reverse=True)
+    else:  # default: alphabetical first, date second
+        groups.sort(key=lambda g: g["added"], reverse=True)
+        groups.sort(key=lambda g: g["primary"].title.lower())
 
     # htmx search requests swap only the grid
     if request.headers.get("hx-request") == "true":
@@ -63,6 +70,7 @@ async def library(
         "active_service": service,
         "active_watched": watched,
         "q": q,
+        "sort": sort,
     })
 
 
