@@ -71,17 +71,17 @@
         {% if s.username or s.password_set %}{{ s.username or '(no username)' }}{% if s.password_set %} · ••••{% endif %}
         {% else %}no credentials{% endif %}
       </span>
-      {% if s.tmdb_provider_id %}
-      <button hx-post="/api/sites/{{ s.slug }}/preload" hx-target="#preload-msg-{{ s.slug }}" hx-swap="innerHTML"
-              hx-confirm="Add the most popular movies and shows currently on {{ s.name }} (top 20 of each)?"
-              hx-disabled-elt="this"
-              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 px-3 py-1.5 text-sm shrink-0">Add all</button>
-      {% endif %}
       {% if s.title_count %}
       <button hx-delete="/api/sites/{{ s.slug }}/titles"
               hx-confirm="Remove all {{ s.title_count }} {{ s.name }} title{{ '' if s.title_count == 1 else 's' }} from your library? The site itself is kept."
               hx-disabled-elt="this"
               class="rounded-lg bg-zinc-900 hover:bg-red-900/60 disabled:opacity-50 px-3 py-1.5 text-sm text-zinc-400 shrink-0">Remove all</button>
+      {% endif %}
+      {% if s.tmdb_provider_id %}
+      <button hx-post="/api/sites/{{ s.slug }}/preload" hx-target="#preload-msg-{{ s.slug }}" hx-swap="innerHTML"
+              hx-confirm="Add the most popular movies and shows currently on {{ s.name }} (top 20 of each)?"
+              hx-disabled-elt="this"
+              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 px-3 py-1.5 text-sm shrink-0">Add all</button>
       {% endif %}
       <button onclick="document.getElementById('edit-{{ s.slug }}').classList.toggle('hidden'); this.classList.toggle('rotate-90')"
               title="Edit {{ s.name }}" aria-label="Edit {{ s.name }}"
