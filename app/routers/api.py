@@ -141,6 +141,38 @@ async def create_site(
     return Response(headers={"HX-Redirect": "/sites"})
 
 
+@router.post("/sites/{slug}/edit")
+async def edit_site(
+    slug: str,
+    name: str = Form(...),
+    base_domain: str = Form(...),
+    playback_mode: str = Form("embedded"),
+    tmdb_provider_id: str = Form(""),
+    search_url: str = Form(""),
+    username: str = Form(""),
+    password: str = Form(""),
+    session: AsyncSession = Depends(get_session),
+):
+    if playback_mode not in ("embedded", "deeplink"):
+        playback_mode = "embedded"
+    provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
+    try:
+        site = sites.update_site(slug, name, base_domain, playback_mode,
+                                 provider_id, search_url, username, password)
+    except ValueError as exc:
+        return _msg(str(exc))
+    service = (await session.execute(
+        select(Service).where(Service.slug == slug)
+    )).scalar_one_or_none()
+    if service:
+        service.name = site["name"]
+        service.base_domain = site["base_domain"]
+        service.playback_mode = PlaybackMode(site["playback_mode"])
+        await session.commit()
+    saved_msg = quote(f"Saved {site['name']}.")
+    return Response(headers={"HX-Redirect": f"/sites?msg={saved_msg}"})
+
+
 @router.delete("/sites/{slug}/titles")
 async def remove_all_titles(slug: str, session: AsyncSession = Depends(get_session)):
     service = (await session.execute(

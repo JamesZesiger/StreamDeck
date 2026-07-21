@@ -91,6 +91,7 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         "password_set": bool(s.get("password")),
         "title_count": title_counts.get(s["slug"], 0),
         "tmdb_provider_id": s.get("tmdb_provider_id"),
+        "search_url": s.get("search_url", ""),
     } for s in sites.load_sites()]
     return templates.TemplateResponse(request, "sites.html", {
         "sites": site_rows, "msg": msg, "show_add": bool(add),

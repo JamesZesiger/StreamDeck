@@ -101,6 +101,15 @@ def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
 
 
+def _clean_domain(base_domain: str) -> str:
+    domain = base_domain.strip().lower()
+    domain = re.sub(r"^https?://", "", domain).split("/")[0]
+    domain = domain.removeprefix("www.")
+    if "." not in domain:
+        raise ValueError("Base domain must look like example.com.")
+    return domain
+
+
 def add_site(name: str, base_domain: str, playback_mode: str,
              username: str = "", password: str = "",
              tmdb_provider_id: int | None = None) -> dict:
@@ -111,11 +120,7 @@ def add_site(name: str, base_domain: str, playback_mode: str,
     sites = load_sites()
     if any(s["slug"] == slug for s in sites):
         raise ValueError(f"A site named “{name}” already exists.")
-    domain = base_domain.strip().lower()
-    domain = re.sub(r"^https?://", "", domain).split("/")[0]
-    domain = domain.removeprefix("www.")
-    if "." not in domain:
-        raise ValueError("Base domain must look like example.com.")
+    domain = _clean_domain(base_domain)
     site = {
         "name": name,
         "slug": slug,
@@ -130,6 +135,30 @@ def add_site(name: str, base_domain: str, playback_mode: str,
     sites.append(site)
     save_sites(sites)
     return site
+
+
+def update_site(slug: str, name: str, base_domain: str, playback_mode: str,
+                tmdb_provider_id: int | None, search_url: str,
+                username: str, password: str) -> dict:
+    """Update a site in place. Slug is the identity and never changes; a blank
+    password keeps the stored one."""
+    sites = load_sites()
+    for s in sites:
+        if s["slug"] != slug:
+            continue
+        if name.strip():
+            s["name"] = name.strip()
+        s["base_domain"] = _clean_domain(base_domain)
+        s["playback_mode"] = playback_mode
+        s["tmdb_provider_id"] = tmdb_provider_id
+        if search_url.strip():
+            s["search_url"] = search_url.strip()
+        s["username"] = username.strip()
+        if password:
+            s["password"] = password
+        save_sites(sites)
+        return s
+    raise ValueError("Unknown site.")
 
 
 def title_search_link(site: dict, query: str) -> str:

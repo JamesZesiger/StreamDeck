@@ -83,6 +83,57 @@
               hx-disabled-elt="this"
               class="rounded-lg bg-zinc-900 hover:bg-red-900/60 disabled:opacity-50 px-3 py-1.5 text-sm text-zinc-400 shrink-0">Remove all</button>
       {% endif %}
+      <button onclick="document.getElementById('edit-{{ s.slug }}').classList.toggle('hidden')"
+              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm shrink-0">Edit</button>
+    </li>
+    <li id="edit-{{ s.slug }}" class="hidden bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+      <form hx-post="/api/sites/{{ s.slug }}/edit" hx-target="#edit-msg-{{ s.slug }}" hx-swap="innerHTML"
+            class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm text-zinc-400 mb-1">Name</label>
+          <input name="name" required value="{{ s.name }}"
+                 class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm text-zinc-400 mb-1">Base domain</label>
+          <input name="base_domain" required value="{{ s.base_domain }}"
+                 class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm text-zinc-400 mb-1">Playback</label>
+          <select name="playback_mode"
+                  class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+            <option value="embedded" {{ 'selected' if s.playback_mode == 'embedded' }}>Embedded (streamed browser)</option>
+            <option value="deeplink" {{ 'selected' if s.playback_mode == 'deeplink' }}>Deep link (local browser)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm text-zinc-400 mb-1">TMDB provider ID <span class="text-zinc-600">(enables “Add all”)</span></label>
+          <input name="tmdb_provider_id" inputmode="numeric" pattern="[0-9]*" value="{{ s.tmdb_provider_id or '' }}"
+                 class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-sm text-zinc-400 mb-1">Search URL <span class="text-zinc-600">({query} is the title)</span></label>
+          <input name="search_url" value="{{ s.search_url }}"
+                 class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm text-zinc-400 mb-1">Username</label>
+          <input name="username" autocomplete="off" value="{{ s.username }}"
+                 class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm text-zinc-400 mb-1">Password <span class="text-zinc-600">(leave blank to keep current)</span></label>
+          <input name="password" type="password" autocomplete="new-password" placeholder="{{ '••••••••' if s.password_set }}"
+                 class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+        </div>
+        <div class="sm:col-span-2 flex items-center gap-4">
+          <button type="submit" class="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white px-5 py-2 text-sm font-semibold">Save</button>
+          <button type="button" onclick="document.getElementById('edit-{{ s.slug }}').classList.add('hidden')"
+                  class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+          <div id="edit-msg-{{ s.slug }}"></div>
+        </div>
+      </form>
     </li>
     {% if s.tmdb_provider_id %}<li id="preload-msg-{{ s.slug }}" class="px-4 empty:hidden"></li>{% endif %}
     {% endfor %}
