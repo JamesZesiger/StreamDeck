@@ -7,7 +7,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TMDB_API_KEY: ${TMDB_API_KEY}
       NEKO_PUBLIC_URL: ${NEKO_PUBLIC_URL:-http://localhost:8080}
-      NEKO_CDP_URL: ${NEKO_CDP_URL:-}
+      NEKO_CDP_URL: ${NEKO_CDP_URL:-http://neko:9223}
       NEKO_USER_PASSWORD: ${NEKO_USER_PASSWORD}
     env_file:
       - .env
@@ -35,6 +35,9 @@ services:
   neko:
     image: m1k1o/neko:chromium
     restart: unless-stopped
+    # Fixed hostname: Chromium's profile SingletonLock embeds it; without this,
+    # every recreate invalidates the lock and Chromium crash-loops.
+    hostname: nekobrowser
     shm_size: 2gb
     ports:
       - "8080:8080"
@@ -50,9 +53,14 @@ services:
       - neko-profile:/home/neko/.config/chromium
       # Chrome-hiding extension (see neko/README.md for how it gets loaded).
       - ./neko/extension:/opt/streamdeck-extension:ro
-      # OPTIONAL — enables auto-navigation on Play via CDP. Generate the override first
-      # (instructions in neko/README.md), then uncomment:
-      # - ./neko/chromium.conf:/etc/neko/supervisord/chromium.conf:ro
+      # Supervisord override: adds CDP (auto-navigation on Play), loads the
+      # chrome-hiding extension, drops --bwsi so logins persist.
+      - ./neko/chromium.conf:/etc/neko/supervisord/chromium.conf:ro
+      # DevTools localhost-only workaround: forwards 9223 -> 127.0.0.1:9222.
+      - ./neko/cdp_proxy.py:/opt/cdp_proxy.py:ro
+      # Image policy ships DeveloperToolsAvailability=2, which silently blocks
+      # page-level CDP (breaking auto-navigation); our copy sets it to 1.
+      - ./neko/policies:/etc/chromium/policies/managed:ro
 
 volumes:
   pgdata:

@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "StreamDeck chrome-hider",
-  "version": "0.1.0",
-  "description": "Hides streaming-site navigation chrome so only the player is prominent. Cosmetic CSS only.",
+  "name": "StreamDeck helper",
+  "version": "0.2.0",
+  "description": "Hides streaming-site chrome (cosmetic CSS) and navigates the browser to the title StreamDeck asks to play.",
+  "permissions": ["tabs", "alarms"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.netflix.com/*"],

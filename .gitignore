@@ -3,4 +3,3 @@ config/
 __pycache__/
 *.pyc
 .venv/
-neko/chromium.conf

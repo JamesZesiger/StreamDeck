@@ -2,10 +2,11 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
+import nav_hub
 import sites
 from db import SessionLocal, engine
 from models import Base, PlaybackMode, Service
@@ -62,3 +63,8 @@ app.include_router(api.router)
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.websocket("/ws/nav")
+async def ws_nav(websocket: WebSocket):
+    await nav_hub.register(websocket)

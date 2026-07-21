@@ -75,13 +75,14 @@ Each service has a `playback_mode`:
 
 ### Navigation of the streamed browser
 
-neko itself exposes no “navigate to URL” REST endpoint, so the app uses the Chrome DevTools
-Protocol when available: if `NEKO_CDP_URL` is set (and the neko Chromium was started with
-`--remote-debugging-port=9222 --remote-debugging-address=0.0.0.0` via the supervisord override
-documented in `neko/README.md`), the app calls `Page.navigate` over the CDP websocket when Play
-is clicked. If CDP is not configured or unreachable, the player page degrades gracefully: it
-shows the title link with a copy button so you can paste it into the streamed browser's address
-bar. CDP here is used *only* to navigate — it is a remote control, not a scraper.
+neko itself exposes no “navigate to URL” REST endpoint, and modern headful Chromium closes its
+DevTools server shortly after startup, so CDP can't be relied on. Instead, the StreamDeck
+helper extension loaded into the streamed Chromium holds a WebSocket to the app
+(`/ws/nav`); clicking Play broadcasts a navigate message and the extension steers the active
+tab (`chrome.tabs.update`). CDP remains a best-effort fallback (`NEKO_CDP_URL`). If neither
+path is available, the player page degrades gracefully: it shows the title link with a copy
+button so you can paste it into the streamed browser's address bar. Navigation is a remote
+control, not a scraper — no page content ever flows back.
 
 ### Sign-in
 

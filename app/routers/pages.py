@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import nav_hub
 import neko_client
 import sites
 from config import settings
@@ -145,7 +146,10 @@ async def play(request: Request, title_id: int, session: AsyncSession = Depends(
     if title.service.playback_mode != PlaybackMode.embedded:
         raise HTTPException(400, "This service uses deep-link playback")
 
-    navigated = await neko_client.navigate(title.deep_link)
+    # Primary: extension WebSocket hub. Fallback: CDP (unreliable on modern
+    # headful Chromium, kept for older neko images).
+    navigated = (await nav_hub.broadcast_navigate(title.deep_link)
+                 or await neko_client.navigate(title.deep_link))
     title.last_played_at = datetime.now(timezone.utc)
     await session.commit()
 

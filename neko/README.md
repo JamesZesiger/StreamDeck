@@ -11,37 +11,34 @@ the service normally (use the "Show credentials" button in the toolbar to copy f
 The Chromium profile is on the `neko-profile` volume, so logins persist across
 `docker compose restart neko`.
 
-## Optional: auto-navigation on Play (CDP)
+## Auto-navigation on Play (extension WebSocket)
 
-Out of the box, clicking Play opens the player and you paste the title link into the streamed
-browser (the toolbar has a Copy-link button). To make Play navigate the streamed browser
-automatically, the Chromium inside the container must expose the DevTools protocol:
+Clicking Play navigates the streamed browser automatically. The mechanism: the StreamDeck
+helper extension (`neko/extension/`, loaded via `--load-extension` in `chromium.conf`) keeps a
+WebSocket open to the app (`ws://app:8000/ws/nav`); Play broadcasts a navigate message and the
+extension steers the active tab with `chrome.tabs.update`. The app pings every 20s to keep the
+extension's MV3 service worker alive.
 
-1. Extract the image's original supervisord config:
+CDP was the original mechanism and remains a fallback (`NEKO_CDP_URL`, via `cdp_proxy.py`),
+but modern headful Chromium (150+) closes the DevTools server shortly after startup as part of
+Chrome's remote-debugging hardening — don't rely on it.
 
-   ```bash
-   docker compose create neko
-   docker compose cp neko:/etc/neko/supervisord/chromium.conf ./neko/chromium.conf
-   ```
+Pieces that make this work (already wired in `docker-compose.yml`):
 
-2. Edit `./neko/chromium.conf` and append these flags to the chromium `command=` line:
+- `./neko/chromium.conf` overrides the image's supervisord config: loads the extension,
+  drops `--bwsi` (guest mode doesn't persist cookies), moves the profile to
+  `.../chromium/profile` (a non-default dir, required for any debugging), and runs
+  `cdp_proxy.py`.
+- `./neko/policies/` overrides the image's Chromium policies: `DeveloperToolsAvailability`
+  set to allowed and the `ExtensionInstallBlocklist: ["*"]` removed — the image's wildcard
+  blocklist silently blocks `--load-extension`.
+- `hostname: nekobrowser` is pinned: Chromium's profile `SingletonLock` embeds the hostname,
+  and without a fixed one every container recreate leaves a stale lock that crash-loops the
+  browser. If Chromium ever refuses to start after unclean shutdowns, clear it with:
+  `docker run --rm -v personalresearch_neko-profile:/p alpine rm -f /p/profile/Singleton*`
 
-   ```
-   --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0
-   ```
-
-   To also load the chrome-hiding extension, append:
-
-   ```
-   --load-extension=/opt/streamdeck-extension
-   ```
-
-3. Uncomment the `./neko/chromium.conf` volume mount in `docker-compose.yml`, and set
-   `NEKO_CDP_URL=http://neko:9222` in `.env`. Recreate: `docker compose up -d --force-recreate neko`.
-
-The port 9222 is **not** published to the host — only the `app` container reaches it on the
-compose network. If the neko image is upgraded, re-extract the conf and re-apply the flags
-(`neko/chromium.conf` is gitignored since it derives from the image).
+If the neko image is upgraded, re-extract `chromium.conf` and `policies.json` from the new
+image and re-apply the same edits.
 
 ## Quality expectations
 
