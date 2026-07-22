@@ -7,8 +7,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 
 import sites
+import tmdb
 from db import SessionLocal, engine
-from models import Base, Service
+from models import Base, Service, Title
 from routers import api, pages
 
 log = logging.getLogger(__name__)
@@ -24,6 +25,28 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE services DROP COLUMN IF EXISTS playback_mode"))
                 await conn.execute(text("DROP TYPE IF EXISTS playback_mode"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "genres VARCHAR(300) NOT NULL DEFAULT ''"))
+                # Profiles: the library is shared, watch state is per profile.
+                # Seed one profile, move the legacy global watched flag into
+                # it, then retire the old columns.
+                await conn.execute(text(
+                    "INSERT INTO profiles (name) SELECT 'Default' "
+                    "WHERE NOT EXISTS (SELECT 1 FROM profiles)"))
+                legacy_watched = (await conn.execute(text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name='titles' AND column_name='watched'"))).first()
+                if legacy_watched:
+                    await conn.execute(text(
+                        "INSERT INTO profile_watches (profile_id, tmdb_id, media_type, watched_at) "
+                        "SELECT (SELECT id FROM profiles ORDER BY id LIMIT 1), "
+                        "       t.tmdb_id, t.media_type, now() "
+                        "FROM (SELECT DISTINCT tmdb_id, media_type FROM titles WHERE watched) t "
+                        "ON CONFLICT DO NOTHING"))
+                    await conn.execute(text("ALTER TABLE titles DROP COLUMN watched"))
+                await conn.execute(text(
+                    "ALTER TABLE titles DROP COLUMN IF EXISTS last_played_at"))
             break
         except Exception:
             if attempt == retries - 1:
@@ -50,10 +73,47 @@ async def _init_db(retries: int = 10) -> None:
         await session.commit()
 
 
+async def _backfill_genres() -> None:
+    """Best-effort: fetch genres for titles added before the column existed."""
+    try:
+        async with SessionLocal() as session:
+            rows = (await session.execute(
+                select(Title).where(Title.genres == ""))).scalars().all()
+            if not rows:
+                return
+            by_key: dict[tuple, list[Title]] = {}
+            for t in rows:
+                by_key.setdefault((t.tmdb_id, t.media_type.value), []).append(t)
+
+            sem = asyncio.Semaphore(4)
+
+            async def fetch(tmdb_id: int, media_type: str) -> str | None:
+                async with sem:
+                    try:
+                        return (await tmdb.get_details(tmdb_id, media_type))["genres"]
+                    except Exception:
+                        return None
+
+            results = await asyncio.gather(
+                *(fetch(tid, mt) for tid, mt in by_key))
+            filled = 0
+            for (key, titles), genres in zip(by_key.items(), results):
+                if genres:
+                    for t in titles:
+                        t.genres = genres
+                    filled += len(titles)
+            await session.commit()
+            log.info("Backfilled genres for %d of %d titles", filled, len(rows))
+    except Exception:
+        log.exception("Genre backfill failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _init_db()
+    backfill = asyncio.create_task(_backfill_genres())
     yield
+    backfill.cancel()
 
 
 app = FastAPI(title="StreamDeck", lifespan=lifespan)

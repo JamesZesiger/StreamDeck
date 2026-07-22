@@ -90,4 +90,5 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "backdrop_url": _img(d.get("backdrop_path"), "w1280"),
         "runtime_minutes": runtime,
         "release_year": int(date[:4]) if len(date) >= 4 and date[:4].isdigit() else None,
+        "genres": ", ".join(g["name"] for g in d.get("genres", [])),
     }
