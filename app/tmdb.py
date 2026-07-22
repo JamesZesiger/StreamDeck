@@ -91,4 +91,5 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "runtime_minutes": runtime,
         "release_year": int(date[:4]) if len(date) >= 4 and date[:4].isdigit() else None,
         "genres": ", ".join(g["name"] for g in d.get("genres", [])),
+        "mature": bool(d.get("adult")),
     }

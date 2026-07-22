@@ -64,6 +64,7 @@ async def create_title(
         runtime_minutes=details["runtime_minutes"],
         release_year=details["release_year"],
         genres=details["genres"],
+        mature=details["mature"],
         deep_link=url,
     )
     session.add(title)
@@ -117,6 +118,15 @@ async def toggle_list(request: Request, title_id: int,
         label = "In my list ✓"
     await session.commit()
     return Response(content=label, media_type="text/plain")
+
+
+@router.patch("/settings/hide-mature")
+async def toggle_hide_mature(request: Request,
+                             session: AsyncSession = Depends(get_session)):
+    profile = await active_profile(request, session)
+    profile.hide_mature = not profile.hide_mature
+    await session.commit()
+    return Response(headers={"HX-Refresh": "true"})
 
 
 @router.post("/profiles")
@@ -306,6 +316,7 @@ async def preload_site(slug: str, session: AsyncSession = Depends(get_session)):
                     runtime_minutes=d["runtime_minutes"],
                     release_year=d["release_year"],
                     genres=d["genres"],
+                    mature=d["mature"],
                     deep_link=sites.title_search_link(site, d["title"]),
                 ))
                 added += 1

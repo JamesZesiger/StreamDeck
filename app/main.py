@@ -28,6 +28,12 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
                     "genres VARCHAR(300) NOT NULL DEFAULT ''"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "mature BOOLEAN NOT NULL DEFAULT FALSE"))
+                await conn.execute(text(
+                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
+                    "hide_mature BOOLEAN NOT NULL DEFAULT FALSE"))
                 # Profiles: the library is shared, watch state is per profile.
                 # Seed one profile, move the legacy global watched flag into
                 # it, then retire the old columns.
@@ -87,20 +93,21 @@ async def _backfill_genres() -> None:
 
             sem = asyncio.Semaphore(4)
 
-            async def fetch(tmdb_id: int, media_type: str) -> str | None:
+            async def fetch(tmdb_id: int, media_type: str) -> dict | None:
                 async with sem:
                     try:
-                        return (await tmdb.get_details(tmdb_id, media_type))["genres"]
+                        return await tmdb.get_details(tmdb_id, media_type)
                     except Exception:
                         return None
 
             results = await asyncio.gather(
                 *(fetch(tid, mt) for tid, mt in by_key))
             filled = 0
-            for (key, titles), genres in zip(by_key.items(), results):
-                if genres:
+            for (key, titles), details in zip(by_key.items(), results):
+                if details:
                     for t in titles:
-                        t.genres = genres
+                        t.genres = details["genres"]
+                        t.mature = details["mature"]
                     filled += len(titles)
             await session.commit()
             log.info("Backfilled genres for %d of %d titles", filled, len(rows))

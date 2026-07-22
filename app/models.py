@@ -43,6 +43,8 @@ class Title(Base):
     release_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Comma-separated TMDB genre names, e.g. "Action, Comedy".
     genres: Mapped[str] = mapped_column(String(300), default="")
+    # TMDB's adult flag.
+    mature: Mapped[bool] = mapped_column(Boolean, default=False)
     deep_link: Mapped[str] = mapped_column(String(1000))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -56,6 +58,7 @@ class Profile(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50), unique=True)
+    hide_mature: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
