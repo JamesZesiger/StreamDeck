@@ -1,3 +1,6 @@
+import asyncio
+import random
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -5,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import sites
+import tmdb
 from db import get_session
 from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
                     Title)
@@ -12,6 +16,26 @@ from profiles import active_profile
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+
+# Collection details never really change; fetch each id from TMDB once.
+_collection_cache: dict[int, dict] = {}
+
+
+async def _random_collections(n: int = 5) -> list[dict]:
+    """n random curated TMDB collections for the carousel. Best-effort:
+    failed fetches are skipped, so this returns [] if TMDB is unreachable."""
+    ids = random.sample(tmdb.CURATED_COLLECTIONS,
+                        min(n, len(tmdb.CURATED_COLLECTIONS)))
+
+    async def fetch(cid: int) -> dict | None:
+        if cid not in _collection_cache:
+            try:
+                _collection_cache[cid] = await tmdb.get_collection(cid)
+            except Exception:
+                return None
+        return _collection_cache[cid]
+
+    return [c for c in await asyncio.gather(*(fetch(i) for i in ids)) if c]
 
 
 @router.get("/")
@@ -97,6 +121,7 @@ async def library(
     decades = sorted({(y // 10) * 10 for _, y in all_rows if y}, reverse=True)
     return templates.TemplateResponse(request, "library.html", {
         "groups": groups,
+        "collections": await _random_collections(),
         "services": services,
         "genres": genres,
         "decades": decades,
