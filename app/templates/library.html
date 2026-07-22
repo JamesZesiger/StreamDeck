@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set filters_active = active_service or active_watched or active_type or active_genre or active_decade or active_list or q %}
 {% block nav_left %}
 <button type="button" id="library-menu-btn" title="Filters &amp; search"
         onclick="toggleLibraryDrawer()"
@@ -6,7 +7,7 @@
   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
   </svg>
-  {% if active_service or active_watched or q %}
+  {% if filters_active %}
   <span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500"></span>
   {% endif %}
 </button>
@@ -29,39 +30,92 @@
     <input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
            hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
            hx-include="[name='sort']"
-           hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
+           hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'
            autocomplete="off"
            class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Service</div>
       <div class="flex flex-wrap items-center gap-1.5">
-        <a href="/" title="All services"
-           class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</a>
+        <button type="button" onclick="setFilter('service', '')" title="All services"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</button>
         {% for s in services %}
-        <a href="/?service={{ s.slug }}{{ '&watched=' + active_watched if active_watched else '' }}" title="{{ s.name }}"
-           class="p-0.5 rounded-md {{ 'ring-2 ring-red-500' if active_service == s.slug else 'opacity-60 hover:opacity-100' }}">
+        <button type="button" onclick="setFilter('service', '{{ s.slug }}')" title="{{ s.name }}"
+                class="p-0.5 rounded-md {{ 'ring-2 ring-red-500' if active_service == s.slug else 'opacity-60 hover:opacity-100' }}">
           <img src="{{ s.icon_path }}" alt="{{ s.name }}" class="w-6 h-6 rounded">
-        </a>
+        </button>
         {% endfor %}
       </div>
     </div>
     <div>
-      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Filter</div>
-      <a href="{{ '/?service=' + active_service if active_service else '/' }}{{ ('&' if active_service else '?') + 'watched=false' if active_watched != 'false' else '' }}"
-         title="Show only unwatched"
-         class="inline-block px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_watched == 'false' else 'bg-zinc-800 hover:bg-zinc-700' }}">Unwatched</a>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Type</div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        {% for val, label in [('', 'All'), ('movie', 'Movies'), ('tv', 'TV shows')] %}
+        <button type="button" onclick="setFilter('type', '{{ val }}')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if (active_type or '') == val else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ label }}</button>
+        {% endfor %}
+      </div>
     </div>
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Watched</div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        {% for val, label in [('', 'All'), ('false', 'Unwatched'), ('true', 'Watched')] %}
+        <button type="button" onclick="setFilter('watched', '{{ val }}')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if (active_watched or '') == val else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">My list</div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        {% for val, label in [('', 'Everything'), ('true', 'My list only')] %}
+        <button type="button" onclick="setFilter('list', '{{ val }}')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if (active_list or '') == val else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% if genres %}
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Genre</div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button type="button" onclick="setFilter('genre', '')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_genre else 'bg-zinc-800 hover:bg-zinc-700' }}">All</button>
+        {% for g in genres %}
+        <button type="button" onclick="setFilter('genre', '{{ g }}')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_genre == g else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ g }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if decades %}
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Decade</div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button type="button" onclick="setFilter('decade', '')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_decade else 'bg-zinc-800 hover:bg-zinc-700' }}">All</button>
+        {% for d in decades %}
+        <button type="button" onclick="setFilter('decade', '{{ d }}')"
+                class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_decade == d else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ d }}s</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Sort</div>
       <select name="sort" title="Sort library"
               hx-get="/" hx-trigger="change" hx-target="#tile-grid" hx-swap="innerHTML"
               hx-include="[name='q']"
-              hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
+              hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'
               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1.5 text-sm">
         <option value="title" {{ 'selected' if sort != 'added' }}>A–Z</option>
         <option value="added" {{ 'selected' if sort == 'added' }}>Recently added</option>
       </select>
     </div>
+    {% if filters_active %}
+    <button type="button" onclick="window.location.href='/'"
+            class="w-full rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300">
+      Reset all filters
+    </button>
+    {% endif %}
   </div>
 </div>
 <style>
@@ -82,6 +136,13 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') toggleLibraryDrawer(false);
   });
+  // Set/clear one filter param, keep the others as they are in the URL.
+  function setFilter(name, value) {
+    const params = new URLSearchParams(window.location.search);
+    if (value) params.set(name, value); else params.delete(name);
+    const qs = params.toString();
+    window.location.href = qs ? '/?' + qs : '/';
+  }
 </script>
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}

@@ -5,13 +5,15 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import sites
 import tmdb
 from db import get_session
-from models import MediaType, Service, Title
+from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
+                    Title)
+from profiles import active_profile, set_profile_cookie
 
 router = APIRouter(prefix="/api")
 templates = Jinja2Templates(directory="templates")
@@ -61,6 +63,7 @@ async def create_title(
         backdrop_url=details["backdrop_url"],
         runtime_minutes=details["runtime_minutes"],
         release_year=details["release_year"],
+        genres=details["genres"],
         deep_link=url,
     )
     session.add(title)
@@ -69,21 +72,99 @@ async def create_title(
 
 
 @router.patch("/titles/{title_id}/watched")
-async def toggle_watched(title_id: int, session: AsyncSession = Depends(get_session)):
+async def toggle_watched(request: Request, title_id: int,
+                         session: AsyncSession = Depends(get_session)):
     title = await session.get(Title, title_id)
     if not title:
         raise HTTPException(404)
-    # Watched state applies to the combined title, across all its providers.
-    siblings = (await session.execute(
-        select(Title).where(Title.tmdb_id == title.tmdb_id,
-                            Title.media_type == title.media_type)
-    )).scalars().all()
-    new_state = not any(s.watched for s in siblings)
-    for s in siblings:
-        s.watched = new_state
+    # Watched state applies to the combined title, across all its providers,
+    # and belongs to the active profile only.
+    profile = await active_profile(request, session)
+    watch = (await session.execute(
+        select(ProfileWatch).where(ProfileWatch.profile_id == profile.id,
+                                   ProfileWatch.tmdb_id == title.tmdb_id,
+                                   ProfileWatch.media_type == title.media_type)
+    )).scalar_one_or_none()
+    if watch:
+        await session.delete(watch)
+        label = "Mark watched"
+    else:
+        session.add(ProfileWatch(profile_id=profile.id, tmdb_id=title.tmdb_id,
+                                 media_type=title.media_type))
+        label = "Watched ✓"
     await session.commit()
-    label = "Watched ✓" if new_state else "Mark watched"
     return Response(content=label, media_type="text/plain")
+
+
+@router.patch("/titles/{title_id}/list")
+async def toggle_list(request: Request, title_id: int,
+                      session: AsyncSession = Depends(get_session)):
+    title = await session.get(Title, title_id)
+    if not title:
+        raise HTTPException(404)
+    profile = await active_profile(request, session)
+    item = (await session.execute(
+        select(ProfileListItem).where(ProfileListItem.profile_id == profile.id,
+                                      ProfileListItem.tmdb_id == title.tmdb_id,
+                                      ProfileListItem.media_type == title.media_type)
+    )).scalar_one_or_none()
+    if item:
+        await session.delete(item)
+        label = "+ My list"
+    else:
+        session.add(ProfileListItem(profile_id=profile.id, tmdb_id=title.tmdb_id,
+                                    media_type=title.media_type))
+        label = "In my list ✓"
+    await session.commit()
+    return Response(content=label, media_type="text/plain")
+
+
+@router.post("/profiles")
+async def create_profile(name: str = Form(...),
+                         session: AsyncSession = Depends(get_session)):
+    name = name.strip()[:50]
+    if not name:
+        return _msg("Profile name required.")
+    exists = (await session.execute(
+        select(Profile).where(func.lower(Profile.name) == name.lower())
+    )).scalar_one_or_none()
+    if exists:
+        return _msg("A profile with that name already exists.")
+    profile = Profile(name=name)
+    session.add(profile)
+    await session.commit()
+    response = Response(headers={"HX-Refresh": "true"})
+    set_profile_cookie(response, profile.id)
+    return response
+
+
+@router.post("/profiles/{profile_id}/activate")
+async def activate_profile(profile_id: int,
+                           session: AsyncSession = Depends(get_session)):
+    if not await session.get(Profile, profile_id):
+        raise HTTPException(404, "Unknown profile")
+    response = Response(headers={"HX-Refresh": "true"})
+    set_profile_cookie(response, profile_id)
+    return response
+
+
+@router.delete("/profiles/{profile_id}")
+async def delete_profile(request: Request, profile_id: int,
+                         session: AsyncSession = Depends(get_session)):
+    profiles = (await session.execute(
+        select(Profile).order_by(Profile.id))).scalars().all()
+    if len(profiles) <= 1:
+        return _msg("Can't delete the last profile.")
+    profile = next((p for p in profiles if p.id == profile_id), None)
+    if not profile:
+        raise HTTPException(404, "Unknown profile")
+    await session.delete(profile)  # watches/list rows cascade
+    await session.commit()
+    response = Response(headers={"HX-Refresh": "true"})
+    if request.cookies.get("profile_id") == str(profile_id):
+        remaining = next(p for p in profiles if p.id != profile_id)
+        set_profile_cookie(response, remaining.id)
+    return response
 
 
 @router.delete("/titles/{title_id}")
@@ -224,6 +305,7 @@ async def preload_site(slug: str, session: AsyncSession = Depends(get_session)):
                     backdrop_url=d["backdrop_url"],
                     runtime_minutes=d["runtime_minutes"],
                     release_year=d["release_year"],
+                    genres=d["genres"],
                     deep_link=sites.title_search_link(site, d["title"]),
                 ))
                 added += 1

@@ -23,7 +23,7 @@
       <h1 class="text-4xl font-bold mb-2">{{ t.title }}</h1>
       <p class="text-sm text-zinc-400 mb-4">
         {{ t.release_year or '' }}{% if t.runtime_minutes %} · {{ t.runtime_minutes }} min{% endif %}
-        {% if t.last_played_at %} · last played {{ t.last_played_at.strftime('%Y-%m-%d') }}{% endif %}
+        {% if watched_at %} · watched {{ watched_at.strftime('%Y-%m-%d') }}{% endif %}
       </p>
       <p class="text-zinc-300 leading-relaxed mb-6 max-w-2xl">{{ t.overview }}</p>
 
@@ -44,6 +44,10 @@
         <button hx-patch="/api/titles/{{ t.id }}/watched" hx-swap="innerHTML"
                 class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-2.5 text-sm">
           {{ 'Watched ✓' if group_watched else 'Mark watched' }}
+        </button>
+        <button hx-patch="/api/titles/{{ t.id }}/list" hx-swap="innerHTML"
+                class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-2.5 text-sm">
+          {{ 'In my list ✓' if in_list else '+ My list' }}
         </button>
         <button hx-delete="/api/titles/{{ t.id }}" hx-confirm="Remove “{{ t.title }}” (all providers) from your library?"
                 class="rounded-lg bg-zinc-900 hover:bg-red-900/60 px-4 py-2.5 text-sm text-zinc-400">Remove</button>

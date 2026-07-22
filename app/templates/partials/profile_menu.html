@@ -1,0 +1,29 @@
+<div class="py-1">
+  {% for p in profiles %}
+  <div class="flex items-center">
+    <button type="button" hx-post="/api/profiles/{{ p.id }}/activate"
+            class="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-zinc-800">
+      <span class="w-6 h-6 shrink-0 rounded-full {{ 'bg-red-600' if p.id == active_profile.id else 'bg-zinc-700' }} grid place-items-center text-xs font-bold">{{ p.name[:1]|upper }}</span>
+      <span class="truncate">{{ p.name }}</span>
+      {% if p.id == active_profile.id %}
+      <span class="ml-auto text-xs text-zinc-500 shrink-0">active</span>
+      {% endif %}
+    </button>
+    {% if profiles|length > 1 %}
+    <button type="button" hx-delete="/api/profiles/{{ p.id }}"
+            hx-confirm="Delete profile “{{ p.name }}” and its watch history and list?"
+            title="Delete {{ p.name }}"
+            class="px-2.5 py-2 text-zinc-600 hover:text-red-400">✕</button>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+<form hx-post="/api/profiles" hx-target="#profile-msg"
+      class="border-t border-zinc-800 p-2">
+  <div class="flex gap-1.5">
+    <input name="name" required maxlength="50" placeholder="New profile…" autocomplete="off"
+           class="min-w-0 flex-1 rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1 text-sm">
+    <button class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-sm shrink-0">Add</button>
+  </div>
+  <div id="profile-msg" class="px-1 pt-1"></div>
+</form>
