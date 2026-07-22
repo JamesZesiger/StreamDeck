@@ -7,6 +7,44 @@ from config import settings
 BASE = "https://api.themoviedb.org/3"
 IMG = "https://image.tmdb.org/t/p"
 
+# TMDB has no "browse collections" endpoint, so the carousel samples from a
+# curated set of well-known franchise collections (ids verified against the
+# API). All names end in "Collection" on TMDB.
+CURATED_COLLECTIONS = [
+    10,      # Star Wars
+    1241,    # Harry Potter
+    86311,   # The Avengers
+    263,     # The Dark Knight
+    645,     # James Bond
+    528,     # The Terminator
+    84,      # Indiana Jones
+    2344,    # The Matrix
+    119,     # The Lord of the Rings
+    121938,  # The Hobbit
+    295,     # Pirates of the Caribbean
+    87359,   # Mission: Impossible
+    328,     # Jurassic Park
+    9485,    # The Fast and the Furious
+    748,     # X-Men
+    8650,    # Transformers
+    8091,    # Alien
+    1575,    # Rocky
+    2980,    # Ghostbusters
+    556,     # Spider-Man
+    420,     # The Chronicles of Narnia
+    87096,   # Avatar
+    10194,   # Toy Story
+    2150,    # Shrek
+    86066,   # Despicable Me
+    230,     # The Godfather
+    264,     # Back to the Future
+    1570,    # Die Hard
+    8945,    # Mad Max
+    404609,  # John Wick
+    131635,  # The Hunger Games
+    33514,   # Twilight
+]
+
 
 def _img(path: str | None, size: str) -> str:
     return f"{IMG}/{size}{path}" if path else ""
@@ -63,6 +101,29 @@ async def discover_by_provider(provider_id: int, media_type: str,
                 break
             page += 1
     return ids[:limit]
+
+
+async def get_collection(collection_id: int) -> dict:
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{BASE}/collection/{collection_id}",
+            params={"api_key": settings.tmdb_api_key},
+        )
+        r.raise_for_status()
+    d = r.json()
+    parts = sorted((d.get("parts") or []),
+                   key=lambda p: p.get("release_date") or "9999")
+    return {
+        "id": d["id"],
+        "name": d.get("name") or "",
+        "overview": d.get("overview") or "",
+        "backdrop_url": _img(d.get("backdrop_path"), "w1280"),
+        "poster_url": _img(d.get("poster_path"), "w342"),
+        "parts": [{
+            "title": p.get("title") or "",
+            "poster_url": _img(p.get("poster_path"), "w185"),
+        } for p in parts if p.get("poster_path")],
+    }
 
 
 async def get_details(tmdb_id: int, media_type: str) -> dict:

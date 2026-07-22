@@ -148,6 +148,60 @@
     window.location.href = qs ? '/?' + qs : '/';
   }
 </script>
+{% if collections %}
+<div id="collection-carousel" class="relative rounded-2xl overflow-hidden mb-6 h-60 sm:h-72 bg-zinc-900 ring-1 ring-zinc-800">
+  {% for c in collections %}
+  <div class="carousel-slide absolute inset-0 transition-opacity duration-700 {{ '' if loop.first else 'opacity-0 pointer-events-none' }}">
+    {% if c.backdrop_url %}
+    <img src="{{ c.backdrop_url }}" alt="" class="w-full h-full object-cover"
+         {% if not loop.first %}loading="lazy"{% endif %}>
+    {% endif %}
+    <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/60 to-zinc-950/10"></div>
+    <div class="absolute inset-0 flex flex-col justify-center px-6 sm:px-10 max-w-xl">
+      <p class="text-xs uppercase tracking-wide text-zinc-400 mb-1">Collection</p>
+      <h2 class="text-2xl sm:text-3xl font-bold mb-2">{{ c.name }}</h2>
+      {% if c.overview %}
+      <p class="text-sm text-zinc-300 line-clamp-2 sm:line-clamp-3 mb-3">{{ c.overview }}</p>
+      {% endif %}
+      <div class="flex -space-x-3">
+        {% for p in c.parts[:5] %}
+        <img src="{{ p.poster_url }}" alt="{{ p.title }}" title="{{ p.title }}"
+             class="w-10 rounded-md ring-1 ring-zinc-700 shadow-lg">
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <div class="absolute bottom-3 right-4 flex gap-2 z-10">
+    {% for c in collections %}
+    <button type="button" title="{{ c.name }}" onclick="carouselGo({{ loop.index0 }})"
+            class="carousel-dot w-2.5 h-2.5 rounded-full transition-colors {{ 'bg-zinc-100' if loop.first else 'bg-zinc-500/60 hover:bg-zinc-400' }}"></button>
+    {% endfor %}
+  </div>
+</div>
+<script>
+(() => {
+  const slides = document.querySelectorAll('#collection-carousel .carousel-slide');
+  const dots = document.querySelectorAll('#collection-carousel .carousel-dot');
+  if (slides.length < 2) return;
+  let current = 0;
+  function show(n) {
+    slides[current].classList.add('opacity-0', 'pointer-events-none');
+    dots[current].classList.replace('bg-zinc-100', 'bg-zinc-500/60');
+    current = n;
+    slides[current].classList.remove('opacity-0', 'pointer-events-none');
+    dots[current].classList.replace('bg-zinc-500/60', 'bg-zinc-100');
+  }
+  const next = () => show((current + 1) % slides.length);
+  let timer = setInterval(next, 5000);
+  window.carouselGo = (n) => {
+    clearInterval(timer);
+    show(n);
+    timer = setInterval(next, 5000);
+  };
+})();
+</script>
+{% endif %}
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}
 </div>
