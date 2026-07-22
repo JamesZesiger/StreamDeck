@@ -1,34 +1,88 @@
 {% extends "base.html" %}
-{% block nav_extra %}
-<div class="flex items-center gap-1.5">
-  <a href="/" title="All services"
-     class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</a>
-  {% for s in services %}
-  <a href="/?service={{ s.slug }}{{ '&watched=' + active_watched if active_watched else '' }}" title="{{ s.name }}"
-     class="p-0.5 rounded-md {{ 'ring-2 ring-red-500' if active_service == s.slug else 'opacity-60 hover:opacity-100' }}">
-    <img src="{{ s.icon_path }}" alt="{{ s.name }}" class="w-6 h-6 rounded">
-  </a>
-  {% endfor %}
-  <a href="{{ '/?service=' + active_service if active_service else '/' }}{{ ('&' if active_service else '?') + 'watched=false' if active_watched != 'false' else '' }}"
-     title="Show only unwatched"
-     class="ml-1 px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_watched == 'false' else 'bg-zinc-800 hover:bg-zinc-700' }}">Unwatched</a>
-</div>
-<select name="sort" title="Sort library"
-        hx-get="/" hx-trigger="change" hx-target="#tile-grid" hx-swap="innerHTML"
-        hx-include="[name='q']"
-        hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
-        class="rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1.5 text-sm">
-  <option value="title" {{ 'selected' if sort != 'added' }}>A–Z</option>
-  <option value="added" {{ 'selected' if sort == 'added' }}>Recently added</option>
-</select>
-<input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
-       hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
-       hx-include="[name='sort']"
-       hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
-       autocomplete="off"
-       class="w-40 sm:w-64 rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
+{% block nav_left %}
+<button type="button" id="library-menu-btn" title="Filters &amp; search"
+        onclick="toggleLibraryDrawer()"
+        class="shrink-0 relative rounded-lg p-2 hover:bg-zinc-800">
+  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+  </svg>
+  {% if active_service or active_watched or q %}
+  <span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500"></span>
+  {% endif %}
+</button>
 {% endblock %}
 {% block content %}
+{# Lives outside the nav: its backdrop-blur makes the nav the containing
+   block for fixed descendants, which would clamp the drawer to nav height. #}
+<div id="library-drawer" class="hidden fixed inset-x-0 bottom-0 top-14 z-30">
+  <div class="drawer-backdrop absolute inset-0 bg-black/60" onclick="toggleLibraryDrawer(false)"></div>
+  <div class="drawer-panel absolute inset-y-0 left-0 w-80 max-w-[85vw] bg-zinc-900 border-r border-zinc-800 shadow-2xl p-4 space-y-4 overflow-y-auto">
+    <div class="flex items-center justify-between">
+      <span class="text-sm font-semibold uppercase tracking-wide text-zinc-400">Filters &amp; search</span>
+      <button type="button" title="Close menu" class="rounded-lg p-1.5 hover:bg-zinc-800"
+              onclick="toggleLibraryDrawer(false)">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
+           hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
+           hx-include="[name='sort']"
+           hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
+           autocomplete="off"
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Service</div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <a href="/" title="All services"
+           class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</a>
+        {% for s in services %}
+        <a href="/?service={{ s.slug }}{{ '&watched=' + active_watched if active_watched else '' }}" title="{{ s.name }}"
+           class="p-0.5 rounded-md {{ 'ring-2 ring-red-500' if active_service == s.slug else 'opacity-60 hover:opacity-100' }}">
+          <img src="{{ s.icon_path }}" alt="{{ s.name }}" class="w-6 h-6 rounded">
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Filter</div>
+      <a href="{{ '/?service=' + active_service if active_service else '/' }}{{ ('&' if active_service else '?') + 'watched=false' if active_watched != 'false' else '' }}"
+         title="Show only unwatched"
+         class="inline-block px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_watched == 'false' else 'bg-zinc-800 hover:bg-zinc-700' }}">Unwatched</a>
+    </div>
+    <div>
+      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Sort</div>
+      <select name="sort" title="Sort library"
+              hx-get="/" hx-trigger="change" hx-target="#tile-grid" hx-swap="innerHTML"
+              hx-include="[name='q']"
+              hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}"}'
+              class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1.5 text-sm">
+        <option value="title" {{ 'selected' if sort != 'added' }}>A–Z</option>
+        <option value="added" {{ 'selected' if sort == 'added' }}>Recently added</option>
+      </select>
+    </div>
+  </div>
+</div>
+<style>
+  @keyframes drawer-slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+  @keyframes drawer-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  #library-drawer:not(.hidden) .drawer-panel { animation: drawer-slide-in .25s ease-out; }
+  #library-drawer:not(.hidden) .drawer-backdrop { animation: drawer-fade-in .25s ease-out; }
+</style>
+<script>
+  function toggleLibraryDrawer(show) {
+    const drawer = document.getElementById('library-drawer');
+    if (show === undefined) show = drawer.classList.contains('hidden');
+    // Pin the top edge to the toolbar's bottom (its height varies when the
+    // nav wraps on narrow screens), so the toolbar itself is never covered.
+    drawer.style.top = document.querySelector('nav').offsetHeight + 'px';
+    drawer.classList.toggle('hidden', !show);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') toggleLibraryDrawer(false);
+  });
+</script>
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}
 </div>
