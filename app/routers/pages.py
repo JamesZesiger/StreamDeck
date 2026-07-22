@@ -37,6 +37,8 @@ async def library(
 
     decade_int = int(decade) if decade and decade.isdigit() else None
     query = select(Title).options(selectinload(Title.service)).order_by(Title.added_at.desc())
+    if profile.hide_mature:
+        query = query.where(Title.mature.is_(False))
     if service:
         query = query.join(Service).where(Service.slug == service)
     if media_type in ("movie", "tv"):
@@ -176,12 +178,14 @@ async def _get_title(title_id: int, session: AsyncSession) -> Title:
 @router.get("/titles/{title_id}")
 async def detail(request: Request, title_id: int, session: AsyncSession = Depends(get_session)):
     title = await _get_title(title_id, session)
+    profile = await active_profile(request, session)
+    if profile.hide_mature and title.mature:
+        raise HTTPException(404, "Title not found")
     siblings = (await session.execute(
         select(Title).options(selectinload(Title.service))
         .where(Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type)
     )).scalars().all()
     providers = sorted(siblings, key=lambda r: r.service.name.lower())
-    profile = await active_profile(request, session)
     watch = (await session.execute(
         select(ProfileWatch).where(ProfileWatch.profile_id == profile.id,
                                    ProfileWatch.tmdb_id == title.tmdb_id,
