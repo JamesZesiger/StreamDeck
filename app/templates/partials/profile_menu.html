@@ -1,3 +1,15 @@
+{% if locked %}
+<div class="p-3 space-y-2">
+  <p class="text-sm text-zinc-400">Kid mode is on. Enter the parent PIN to switch profiles.</p>
+  <form hx-post="/api/pin/unlock" hx-target="#profile-pin-msg" hx-swap="innerHTML" class="flex gap-1.5">
+    <input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+           placeholder="PIN" required autocomplete="off"
+           class="min-w-0 flex-1 rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1 text-sm">
+    <button class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 text-sm shrink-0">Unlock</button>
+  </form>
+  <div id="profile-pin-msg"></div>
+</div>
+{% else %}
 <div class="py-1">
   {% for p in profiles %}
   <div class="flex items-center">
@@ -27,3 +39,4 @@
   </div>
   <div id="profile-msg" class="px-1 pt-1"></div>
 </form>
+{% endif %}

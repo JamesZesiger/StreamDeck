@@ -31,19 +31,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
           </svg>
         </summary>
-        <div class="absolute right-0 mt-2 w-64 rounded-xl bg-zinc-900 ring-1 ring-zinc-700 shadow-2xl z-50 p-4 space-y-3">
-          <p class="text-sm font-semibold uppercase tracking-wide text-zinc-400">Settings</p>
-          {% if active_profile %}
-          <label class="flex items-center justify-between gap-3 text-sm cursor-pointer">
-            <span>Hide mature content</span>
-            <input type="checkbox" {{ 'checked' if active_profile.hide_mature }}
-                   hx-patch="/api/settings/hide-mature" hx-swap="none"
-                   class="w-4 h-4 accent-red-600">
-          </label>
-          <p class="text-xs text-zinc-500">Settings are saved to the current profile ({{ active_profile.name }}).</p>
-          {% else %}
-          <p class="text-sm text-zinc-500">No profile active.</p>
-          {% endif %}
+        <div class="absolute right-0 mt-2 w-64 rounded-xl bg-zinc-900 ring-1 ring-zinc-700 shadow-2xl z-50 p-4 space-y-3"
+             hx-get="/settings/menu" hx-trigger="click from:closest details once" hx-swap="innerHTML">
+          <p class="px-1 py-2 text-sm text-zinc-500">Loading…</p>
         </div>
       </details>
       {% if active_profile %}
