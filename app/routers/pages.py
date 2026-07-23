@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import prefs
 import sites
 import tmdb
 from db import get_session
@@ -16,6 +17,9 @@ from profiles import active_profile
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+# Toolbar language picker (base.html) renders on every page.
+templates.env.globals["languages"] = prefs.LANGUAGES
+templates.env.globals["current_language"] = prefs.get_language
 
 # Collection details never really change; fetch each id from TMDB once.
 _collection_cache: dict[int, dict] = {}
@@ -48,7 +52,7 @@ async def library(
     decade: str | None = None,
     list_only: str | None = Query(None, alias="list"),
     q: str | None = None,
-    sort: str = "title",
+    sort: str = "rating",
     session: AsyncSession = Depends(get_session),
 ):
     profile = await active_profile(request, session)
@@ -87,12 +91,17 @@ async def library(
     groups = []
     for key, rows in by_key.items():
         rows = sorted(rows, key=lambda r: r.service.name.lower())
+        # A TMDB rating backed by a handful of votes is noise (a 10.0 with two
+        # votes would top every list), so it only counts with >= 10 votes.
+        rated = [r for r in rows if r.rating and (r.vote_count or 0) >= 10]
         groups.append({
             "primary": rows[0],
             "services": [r.service for r in rows],
             "watched": key in watched_keys,
             "in_list": key in list_keys,
             "added": max(r.added_at for r in rows),
+            "rating": max((r.rating for r in rated), default=0),
+            "popularity": max((r.popularity or 0 for r in rows), default=0),
         })
     if watched in ("true", "false"):
         groups = [g for g in groups if g["watched"] == (watched == "true")]
@@ -102,9 +111,18 @@ async def library(
     if sort == "added":
         groups.sort(key=lambda g: g["primary"].title.lower())
         groups.sort(key=lambda g: g["added"], reverse=True)
-    else:  # default: alphabetical first, date second
+    elif sort == "title":
         groups.sort(key=lambda g: g["added"], reverse=True)
         groups.sort(key=lambda g: g["primary"].title.lower())
+    elif sort == "popularity":
+        groups.sort(key=lambda g: g["rating"], reverse=True)
+        groups.sort(key=lambda g: g["popularity"], reverse=True)
+    elif sort == "year":
+        groups.sort(key=lambda g: g["rating"], reverse=True)
+        groups.sort(key=lambda g: g["primary"].release_year or 0, reverse=True)
+    else:  # default "rating": highest rated first, popularity breaks ties
+        groups.sort(key=lambda g: g["popularity"], reverse=True)
+        groups.sort(key=lambda g: g["rating"], reverse=True)
 
     # htmx search requests swap only the grid
     if request.headers.get("hx-request") == "true":

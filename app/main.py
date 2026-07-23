@@ -32,6 +32,15 @@ async def _init_db(retries: int = 10) -> None:
                     "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
                     "mature BOOLEAN NOT NULL DEFAULT FALSE"))
                 await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "rating DOUBLE PRECISION"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "vote_count INTEGER"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "popularity DOUBLE PRECISION"))
+                await conn.execute(text(
                     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
                     "hide_mature BOOLEAN NOT NULL DEFAULT FALSE"))
                 # ADD COLUMN above is a no-op once the column exists (e.g. when
@@ -84,12 +93,14 @@ async def _init_db(retries: int = 10) -> None:
         await session.commit()
 
 
-async def _backfill_genres() -> None:
-    """Best-effort: fetch genres for titles added before the column existed."""
+async def _backfill_details() -> None:
+    """Best-effort: fetch genres/rating/popularity for titles added before
+    those columns existed."""
     try:
         async with SessionLocal() as session:
             rows = (await session.execute(
-                select(Title).where(Title.genres == ""))).scalars().all()
+                select(Title).where((Title.genres == "") | Title.rating.is_(None))
+            )).scalars().all()
             if not rows:
                 return
             by_key: dict[tuple, list[Title]] = {}
@@ -113,17 +124,20 @@ async def _backfill_genres() -> None:
                     for t in titles:
                         t.genres = details["genres"]
                         t.mature = details["mature"]
+                        t.rating = details["rating"]
+                        t.vote_count = details["vote_count"]
+                        t.popularity = details["popularity"]
                     filled += len(titles)
             await session.commit()
-            log.info("Backfilled genres for %d of %d titles", filled, len(rows))
+            log.info("Backfilled details for %d of %d titles", filled, len(rows))
     except Exception:
-        log.exception("Genre backfill failed")
+        log.exception("Details backfill failed")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _init_db()
-    backfill = asyncio.create_task(_backfill_genres())
+    backfill = asyncio.create_task(_backfill_details())
     yield
     backfill.cancel()
 

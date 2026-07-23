@@ -2,6 +2,7 @@
 
 import httpx
 
+import prefs
 from config import settings
 
 BASE = "https://api.themoviedb.org/3"
@@ -54,7 +55,8 @@ async def search_multi(query: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(
             f"{BASE}/search/multi",
-            params={"api_key": settings.tmdb_api_key, "query": query, "include_adult": "false"},
+            params={"api_key": settings.tmdb_api_key, "query": query,
+                    "include_adult": "false", "language": prefs.get_language()},
         )
         r.raise_for_status()
     results = []
@@ -114,7 +116,8 @@ async def get_collection(collection_id: int) -> dict:
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(
             f"{BASE}/collection/{collection_id}",
-            params={"api_key": settings.tmdb_api_key},
+            params={"api_key": settings.tmdb_api_key,
+                    "language": prefs.get_language()},
         )
         r.raise_for_status()
     d = r.json()
@@ -136,7 +139,9 @@ async def get_collection(collection_id: int) -> dict:
 async def get_details(tmdb_id: int, media_type: str) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(
-            f"{BASE}/{media_type}/{tmdb_id}", params={"api_key": settings.tmdb_api_key}
+            f"{BASE}/{media_type}/{tmdb_id}",
+            params={"api_key": settings.tmdb_api_key,
+                    "language": prefs.get_language()},
         )
         r.raise_for_status()
     d = r.json()
@@ -160,4 +165,7 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "release_year": int(date[:4]) if len(date) >= 4 and date[:4].isdigit() else None,
         "genres": ", ".join(g["name"] for g in d.get("genres", [])),
         "mature": bool(d.get("adult")),
+        "rating": d.get("vote_average"),
+        "vote_count": d.get("vote_count"),
+        "popularity": d.get("popularity"),
     }

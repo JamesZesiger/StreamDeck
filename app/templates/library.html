@@ -39,65 +39,72 @@
            class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Service</div>
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" onclick="setFilter('service', '')" title="All services"
+      <div class="flex flex-wrap items-center gap-1.5" data-filter-group="service">
+        <button type="button" data-value="" title="All services"
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_service else 'bg-zinc-800 hover:bg-zinc-700' }}">All</button>
         {% for s in services %}
-        <button type="button" onclick="setFilter('service', '{{ s.slug }}')" title="{{ s.name }}"
+        <button type="button" data-value="{{ s.slug }}" data-kind="icon" title="{{ s.name }}"
                 class="p-0.5 rounded-md {{ 'ring-2 ring-red-500' if active_service == s.slug else 'opacity-60 hover:opacity-100' }}">
-          <img src="{{ s.icon_path }}" alt="{{ s.name }}" class="w-6 h-6 rounded">
+          <img src="{{ s.icon_path }}" alt="{{ s.name }}" class="w-6 h-6 rounded pointer-events-none">
         </button>
         {% endfor %}
       </div>
     </div>
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Type</div>
-      <div class="flex flex-wrap items-center gap-1.5">
+      <div class="flex flex-wrap items-center gap-1.5" data-filter-group="type">
         {% for val, label in [('', 'All'), ('movie', 'Movies'), ('tv', 'TV shows')] %}
-        <button type="button" onclick="setFilter('type', '{{ val }}')"
+        <button type="button" data-value="{{ val }}"
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if (active_type or '') == val else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ label }}</button>
         {% endfor %}
       </div>
     </div>
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Watched</div>
-      <div class="flex flex-wrap items-center gap-1.5">
+      <div class="flex flex-wrap items-center gap-1.5" data-filter-group="watched">
         {% for val, label in [('', 'All'), ('false', 'Unwatched'), ('true', 'Watched')] %}
-        <button type="button" onclick="setFilter('watched', '{{ val }}')"
+        <button type="button" data-value="{{ val }}"
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if (active_watched or '') == val else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ label }}</button>
         {% endfor %}
       </div>
     </div>
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">My list</div>
-      <div class="flex flex-wrap items-center gap-1.5">
+      <div class="flex flex-wrap items-center gap-1.5" data-filter-group="list">
         {% for val, label in [('', 'Everything'), ('true', 'My list only')] %}
-        <button type="button" onclick="setFilter('list', '{{ val }}')"
+        <button type="button" data-value="{{ val }}"
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if (active_list or '') == val else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ label }}</button>
         {% endfor %}
       </div>
     </div>
     {% if genres %}
-    <div>
-      <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Genre</div>
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" onclick="setFilter('genre', '')"
+    <details class="group" {{ 'open' if active_genre }}>
+      <summary class="flex items-center justify-between cursor-pointer list-none select-none">
+        <span class="text-xs uppercase tracking-wide text-zinc-500">Genre ·
+          <span id="genre-label" class="normal-case tracking-normal text-zinc-300">{{ active_genre or 'All' }}</span></span>
+        <svg class="w-4 h-4 text-zinc-500 transition-transform duration-200 group-open:rotate-180"
+             fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </summary>
+      <div class="flex flex-wrap items-center gap-1.5 mt-2 max-h-44 overflow-y-auto" data-filter-group="genre">
+        <button type="button" data-value=""
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_genre else 'bg-zinc-800 hover:bg-zinc-700' }}">All</button>
         {% for g in genres %}
-        <button type="button" onclick="setFilter('genre', '{{ g }}')"
+        <button type="button" data-value="{{ g }}"
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_genre == g else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ g }}</button>
         {% endfor %}
       </div>
-    </div>
+    </details>
     {% endif %}
     {% if decades %}
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Decade</div>
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" onclick="setFilter('decade', '')"
+      <div class="flex flex-wrap items-center gap-1.5" data-filter-group="decade">
+        <button type="button" data-value=""
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if not active_decade else 'bg-zinc-800 hover:bg-zinc-700' }}">All</button>
         {% for d in decades %}
-        <button type="button" onclick="setFilter('decade', '{{ d }}')"
+        <button type="button" data-value="{{ d }}"
                 class="px-2.5 py-1 rounded-full text-xs {{ 'bg-zinc-100 text-zinc-900' if active_decade == d else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ d }}s</button>
         {% endfor %}
       </div>
@@ -110,16 +117,21 @@
               hx-include="[name='q']"
               hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'
               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1.5 text-sm">
-        <option value="title" {{ 'selected' if sort != 'added' }}>A–Z</option>
+        <option value="rating" {{ 'selected' if sort not in ('popularity', 'year', 'title', 'added') }}>Highest rated</option>
+        <option value="popularity" {{ 'selected' if sort == 'popularity' }}>Most popular</option>
+        <option value="year" {{ 'selected' if sort == 'year' }}>Release year</option>
+        <option value="title" {{ 'selected' if sort == 'title' }}>A–Z</option>
         <option value="added" {{ 'selected' if sort == 'added' }}>Recently added</option>
       </select>
     </div>
-    {% if filters_active %}
-    <button type="button" onclick="window.location.href='/'"
-            class="w-full rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300">
-      Reset all filters
-    </button>
-    {% endif %}
+    <div class="flex gap-2 pt-1">
+      <button type="button" onclick="applyFilters()"
+              class="flex-1 rounded-lg bg-red-600 hover:bg-red-500 px-3 py-1.5 text-sm font-semibold">Apply filters</button>
+      {% if filters_active %}
+      <button type="button" onclick="window.location.href='/'"
+              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300">Reset</button>
+      {% endif %}
+    </div>
   </div>
 </div>
 <style>
@@ -140,10 +152,50 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') toggleLibraryDrawer(false);
   });
-  // Set/clear one filter param, keep the others as they are in the URL.
-  function setFilter(name, value) {
-    const params = new URLSearchParams(window.location.search);
-    if (value) params.set(name, value); else params.delete(name);
+  // Filter chips only stage their value here — nothing reloads until Apply,
+  // so several filters can be picked in one drawer visit. Closing the drawer
+  // (backdrop / Escape / X) applies nothing; staged picks are kept until the
+  // page reloads.
+  const stagedFilters = {
+    service: {{ (active_service or '') | tojson }},
+    type: {{ (active_type or '') | tojson }},
+    watched: {{ (active_watched or '') | tojson }},
+    list: {{ (active_list or '') | tojson }},
+    genre: {{ (active_genre or '') | tojson }},
+    decade: {{ (active_decade | string if active_decade else '') | tojson }},
+  };
+  document.querySelectorAll('[data-filter-group]').forEach((group) => {
+    group.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-value]');
+      if (!btn) return;
+      stagedFilters[group.dataset.filterGroup] = btn.dataset.value;
+      for (const b of group.querySelectorAll('button[data-value]')) {
+        const on = b === btn;
+        if (b.dataset.kind === 'icon') {
+          b.classList.toggle('ring-2', on);
+          b.classList.toggle('ring-red-500', on);
+          b.classList.toggle('opacity-60', !on);
+          b.classList.toggle('hover:opacity-100', !on);
+        } else {
+          b.classList.toggle('bg-zinc-100', on);
+          b.classList.toggle('text-zinc-900', on);
+          b.classList.toggle('bg-zinc-800', !on);
+          b.classList.toggle('hover:bg-zinc-700', !on);
+        }
+      }
+      const genreLabel = document.getElementById('genre-label');
+      if (group.dataset.filterGroup === 'genre' && genreLabel)
+        genreLabel.textContent = btn.dataset.value || 'All';
+    });
+  });
+  function applyFilters() {
+    const params = new URLSearchParams();
+    for (const [name, value] of Object.entries(stagedFilters))
+      if (value) params.set(name, value);
+    const sort = document.querySelector('select[name="sort"]').value;
+    if (sort) params.set('sort', sort);
+    const q = document.querySelector('input[name="q"]').value.trim();
+    if (q) params.set('q', q);
     const qs = params.toString();
     window.location.href = qs ? '/?' + qs : '/';
   }

@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import prefs
 import sites
 import tmdb
 from db import SessionLocal, get_session
@@ -68,6 +69,9 @@ async def create_title(
         release_year=details["release_year"],
         genres=details["genres"],
         mature=details["mature"],
+        rating=details["rating"],
+        vote_count=details["vote_count"],
+        popularity=details["popularity"],
         deep_link=url,
     )
     session.add(title)
@@ -333,6 +337,9 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                             release_year=d["release_year"],
                             genres=d["genres"],
                             mature=d["mature"],
+                            rating=d["rating"],
+                            vote_count=d["vote_count"],
+                            popularity=d["popularity"],
                             deep_link=sites.title_search_link(site, d["title"]),
                         ))
                         added += 1
@@ -392,6 +399,71 @@ async def preload_site(slug: str, count: str = Form("0"),
         _run_preload(slug, service.id, provider_id, site, per_type or None))
     _preload_tasks[slug] = task
     return _preload_running_msg(slug)
+
+
+# Changing the metadata language re-fetches every title's TMDB details in the
+# background so stored text (title, overview, genres) switches language too.
+_language_refresh_task: asyncio.Task | None = None
+
+
+async def _refresh_metadata() -> None:
+    sem = asyncio.Semaphore(8)
+
+    async def fetch(tmdb_id: int, media_type: str) -> dict | None:
+        async with sem:
+            try:
+                return await tmdb.get_details(tmdb_id, media_type)
+            except Exception:
+                return None
+
+    try:
+        async with SessionLocal() as session:
+            rows = (await session.execute(select(Title))).scalars().all()
+            by_key: dict[tuple, list[Title]] = {}
+            for t in rows:
+                by_key.setdefault((t.tmdb_id, t.media_type.value), []).append(t)
+            keys = list(by_key)
+            for start in range(0, len(keys), 100):
+                chunk = keys[start:start + 100]
+                details = await asyncio.gather(*(fetch(tid, mt) for tid, mt in chunk))
+                for key, d in zip(chunk, details):
+                    if not d:
+                        continue
+                    for t in by_key[key]:
+                        t.title = d["title"]
+                        t.overview = d["overview"]
+                        t.genres = d["genres"]
+                        t.poster_url = d["poster_url"]
+                        t.backdrop_url = d["backdrop_url"]
+                        t.rating = d["rating"]
+                        t.vote_count = d["vote_count"]
+                        t.popularity = d["popularity"]
+                await session.commit()
+                log.info("Language refresh: %d/%d titles",
+                         min(start + 100, len(keys)), len(keys))
+        log.info("Language refresh finished: %d titles", len(keys))
+    except asyncio.CancelledError:
+        log.info("Language refresh superseded by a newer language change")
+        raise
+    except Exception:
+        log.exception("Language refresh failed")
+
+
+@router.post("/settings/language")
+async def change_language(lang: str = Form(...)):
+    if lang not in {code for code, _, _ in prefs.LANGUAGES}:
+        raise HTTPException(400, "Unknown language")
+    if lang != prefs.get_language():
+        prefs.set_language(lang)
+        from routers import pages
+        pages._collection_cache.clear()  # cached in the old language
+        global _language_refresh_task
+        # A newer language wins: abandon any refresh still running and
+        # restart so every title ends up in the language picked last.
+        if _language_refresh_task and not _language_refresh_task.done():
+            _language_refresh_task.cancel()
+        _language_refresh_task = asyncio.create_task(_refresh_metadata())
+    return Response(headers={"HX-Refresh": "true"})
 
 
 @router.post("/sites/{slug}/preload/stop")
