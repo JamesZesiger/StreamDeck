@@ -8,6 +8,7 @@ from sqlalchemy import select, text
 
 import sites
 import tmdb
+import wikidata
 from db import SessionLocal, engine
 from models import Base, Service, Title
 from routers import api, pages
@@ -144,10 +145,65 @@ async def _backfill_details() -> None:
         log.exception("Details backfill failed")
 
 
+async def _backfill_deep_links() -> None:
+    """Best-effort: upgrade search-page fallback links to direct title pages
+    via Wikidata, for services with a known streaming-id property. Titles
+    Wikidata doesn't know keep their search link."""
+    try:
+        async with SessionLocal() as session:
+            services = {s.id: s.slug for s in (
+                await session.execute(select(Service))).scalars()}
+            site_by_slug = {s["slug"]: s for s in sites.load_sites()}
+            sem = asyncio.Semaphore(4)
+
+            async def imdb(tmdb_id: int, media_type: str) -> str:
+                async with sem:
+                    try:
+                        return await tmdb.get_imdb_id(tmdb_id, media_type)
+                    except Exception:
+                        return ""
+
+            upgraded = 0
+            for service_id, slug in services.items():
+                site = site_by_slug.get(slug)
+                if not site or not wikidata.supported(slug):
+                    continue
+                # A deep_link starting like the search template is a fallback.
+                template = site.get("search_url") or ""
+                prefix = template.split("{query}")[0] if "{query}" in template else template
+                if not prefix:
+                    continue
+                rows = (await session.execute(select(Title).where(
+                    Title.service_id == service_id,
+                    Title.deep_link.like(prefix + "%")))).scalars().all()
+                if not rows:
+                    continue
+                imdb_ids = await asyncio.gather(
+                    *(imdb(t.tmdb_id, t.media_type.value) for t in rows))
+                links = await wikidata.resolve_links(
+                    slug, [(i, t.media_type.value) for i, t in zip(imdb_ids, rows)])
+                for i, t in zip(imdb_ids, rows):
+                    url = links.get(i)
+                    if url:
+                        t.deep_link = url
+                        upgraded += 1
+                await session.commit()
+                log.info("Deep-link backfill %s: %d/%d upgraded",
+                         slug, upgraded, len(rows))
+        log.info("Deep-link backfill finished: upgraded %d titles", upgraded)
+    except Exception:
+        log.exception("Deep-link backfill failed")
+
+
+async def _startup_backfills() -> None:
+    await _backfill_details()
+    await _backfill_deep_links()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _init_db()
-    backfill = asyncio.create_task(_backfill_details())
+    backfill = asyncio.create_task(_startup_backfills())
     yield
     backfill.cancel()
 

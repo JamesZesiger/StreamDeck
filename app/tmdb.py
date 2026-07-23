@@ -142,8 +142,9 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
             f"{BASE}/{media_type}/{tmdb_id}",
             params={"api_key": settings.tmdb_api_key,
                     "language": prefs.get_language(),
-                    "append_to_response": ("release_dates" if media_type == "movie"
-                                           else "content_ratings")},
+                    "append_to_response": ("release_dates,external_ids"
+                                           if media_type == "movie"
+                                           else "content_ratings,external_ids")},
         )
         r.raise_for_status()
     d = r.json()
@@ -182,4 +183,15 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "vote_count": d.get("vote_count"),
         "popularity": d.get("popularity"),
         "certification": certification,
+        "imdb_id": (d.get("external_ids") or {}).get("imdb_id") or "",
     }
+
+
+async def get_imdb_id(tmdb_id: int, media_type: str) -> str:
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{BASE}/{media_type}/{tmdb_id}/external_ids",
+            params={"api_key": settings.tmdb_api_key},
+        )
+        r.raise_for_status()
+    return r.json().get("imdb_id") or ""
