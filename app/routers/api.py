@@ -151,6 +151,15 @@ async def pin_unlock(pin: str = Form(...)):
     return response
 
 
+@router.post("/pin/lock")
+async def pin_lock():
+    """Re-engage the kid-mode lock right away instead of waiting out the
+    5-minute unlock window (e.g. before handing the device back)."""
+    response = Response(headers={"HX-Refresh": "true"})
+    response.delete_cookie(PIN_COOKIE)
+    return response
+
+
 @router.patch("/settings/rating-cap")
 async def set_rating_cap(request: Request, level: str = Form(""),
                          session: AsyncSession = Depends(get_session)):
@@ -258,7 +267,9 @@ async def delete_profile(request: Request, profile_id: int,
 
 
 @router.delete("/titles/{title_id}")
-async def delete_title(title_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_title(request: Request, title_id: int,
+                       session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)  # removes from the shared library
     title = await session.get(Title, title_id)
     if title:
         # Remove the combined title: every provider's row.
@@ -266,14 +277,6 @@ async def delete_title(title_id: int, session: AsyncSession = Depends(get_sessio
             Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type))
         await session.commit()
     return Response(headers={"HX-Redirect": "/"})
-
-
-@router.get("/credentials/{slug}")
-async def credentials(request: Request, slug: str):
-    creds = sites.get_credentials(slug)
-    if not creds:
-        raise HTTPException(404, "No credentials configured for this service")
-    return templates.TemplateResponse(request, "partials/credentials.html", {"creds": creds})
 
 
 def _msg(text: str, tone: str = "amber") -> Response:
@@ -285,17 +288,16 @@ def _msg(text: str, tone: str = "amber") -> Response:
 
 @router.post("/sites")
 async def create_site(
+    request: Request,
     name: str = Form(...),
     base_domain: str = Form(...),
-    username: str = Form(""),
-    password: str = Form(""),
     tmdb_provider_id: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
+    await _unlocked_profile(request, session)
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
-        site = sites.add_site(name, base_domain, username, password,
-                              tmdb_provider_id=provider_id)
+        site = sites.add_site(name, base_domain, tmdb_provider_id=provider_id)
     except ValueError as exc:
         return _msg(str(exc))
     session.add(Service(
@@ -310,19 +312,19 @@ async def create_site(
 
 @router.post("/sites/{slug}/edit")
 async def edit_site(
+    request: Request,
     slug: str,
     name: str = Form(...),
     base_domain: str = Form(...),
     tmdb_provider_id: str = Form(""),
     search_url: str = Form(""),
-    username: str = Form(""),
-    password: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
+    await _unlocked_profile(request, session)
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
         site = sites.update_site(slug, name, base_domain,
-                                 provider_id, search_url, username, password)
+                                 provider_id, search_url)
     except ValueError as exc:
         return _msg(str(exc))
     service = (await session.execute(
@@ -337,7 +339,9 @@ async def edit_site(
 
 
 @router.delete("/sites/{slug}/titles")
-async def remove_all_titles(slug: str, session: AsyncSession = Depends(get_session)):
+async def remove_all_titles(request: Request, slug: str,
+                            session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     service = (await session.execute(
         select(Service).where(Service.slug == slug)
     )).scalar_one_or_none()
@@ -446,8 +450,9 @@ def _preload_running_msg(slug: str) -> Response:
 
 
 @router.post("/sites/{slug}/preload")
-async def preload_site(slug: str, count: str = Form("0"),
+async def preload_site(request: Request, slug: str, count: str = Form("0"),
                        session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     site = sites.get_site(slug)
     if not site:
         raise HTTPException(404, "Unknown site")
@@ -525,7 +530,9 @@ async def _refresh_metadata() -> None:
 
 
 @router.post("/settings/language")
-async def change_language(lang: str = Form(...)):
+async def change_language(request: Request, lang: str = Form(...),
+                          session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     if lang not in {code for code, _, _ in prefs.LANGUAGES}:
         raise HTTPException(400, "Unknown language")
     if lang != prefs.get_language():
@@ -542,7 +549,9 @@ async def change_language(lang: str = Form(...)):
 
 
 @router.post("/sites/{slug}/preload/stop")
-async def stop_preload(slug: str):
+async def stop_preload(request: Request, slug: str,
+                       session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     task = _preload_tasks.get(slug)
     if not task or task.done():
         return _msg("No import is running for this site.")

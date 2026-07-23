@@ -11,8 +11,7 @@ service's own signed-in web player — deep-linked into your local browser for f
 
 ```bash
 cp .env.example .env
-# Fill in: TMDB_API_KEY (free from themoviedb.org), the Postgres password,
-# and optionally your streaming credentials (SVC_*) for the sign-in helper.
+# Fill in: TMDB_API_KEY (free from themoviedb.org) and the Postgres password.
 
 docker compose up -d --build
 ```
@@ -27,8 +26,9 @@ docker compose up -d --build
    service's own player, signed in to your account (Edge/Chrome on Windows negotiate
    PlayReady up to 4K).
 3. **Sites** — the *Sites* page lists all configured services and has an *Add custom site*
-   button (name, domain, optional credentials). The site list and credentials live in
+   button (name, domain, optional TMDB provider id). The site list lives in
    `config/sites.json` (gitignored, created on first startup); manual edits apply on restart.
+   Sign-in happens in your own browser session — no credentials are stored.
 
 ## Stack
 

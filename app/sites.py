@@ -1,16 +1,15 @@
 """Dynamic site registry backed by a JSON file.
 
 SITES_FILE (default /data/sites.json, volume-mounted from ./config) is the
-source of truth for which streaming sites exist and their sign-in credentials.
-Created with the default six sites on first startup, then synced into the
-services table so titles can reference sites by FK. Credentials live only in
-the JSON file (or legacy SVC_* env vars) — never in the database.
+source of truth for which streaming sites exist. Created with the default six
+sites on first startup, then synced into the services table so titles can
+reference sites by FK. Sign-in happens in the browser (the user's own session
+cookies with each site) — no credentials are stored anywhere.
 Manual edits to the file apply on app restart.
 """
 
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from urllib.parse import urlparse
@@ -22,22 +21,22 @@ from config import settings
 # deep links when the exact title URL is unknown (preloaded titles).
 DEFAULT_SITES = [
     {"name": "Netflix", "slug": "netflix", "base_domain": "netflix.com",
-     "icon_path": "/static/icons/netflix.svg",     "username": "", "password": "", "tmdb_provider_id": 8,
+     "icon_path": "/static/icons/netflix.svg",     "tmdb_provider_id": 8,
      "search_url": "https://www.netflix.com/search?q={query}"},
     {"name": "Disney+", "slug": "disneyplus", "base_domain": "disneyplus.com",
-     "icon_path": "/static/icons/disneyplus.svg",     "username": "", "password": "", "tmdb_provider_id": 337,
+     "icon_path": "/static/icons/disneyplus.svg",     "tmdb_provider_id": 337,
      "search_url": "https://www.disneyplus.com/search?q={query}"},
     {"name": "Hulu", "slug": "hulu", "base_domain": "hulu.com",
-     "icon_path": "/static/icons/hulu.svg",     "username": "", "password": "", "tmdb_provider_id": 15,
+     "icon_path": "/static/icons/hulu.svg",     "tmdb_provider_id": 15,
      "search_url": "https://www.hulu.com/search?q={query}"},
     {"name": "Prime Video", "slug": "primevideo", "base_domain": "primevideo.com",
-     "icon_path": "/static/icons/primevideo.svg",     "username": "", "password": "", "tmdb_provider_id": 9,
+     "icon_path": "/static/icons/primevideo.svg",     "tmdb_provider_id": 9,
      "search_url": "https://www.primevideo.com/search?phrase={query}"},
     {"name": "Max", "slug": "max", "base_domain": "max.com",
-     "icon_path": "/static/icons/max.svg",     "username": "", "password": "", "tmdb_provider_id": 1899,
+     "icon_path": "/static/icons/max.svg",     "tmdb_provider_id": 1899,
      "search_url": "https://play.max.com/search?q={query}"},
     {"name": "YouTube", "slug": "youtube", "base_domain": "youtube.com",
-     "icon_path": "/static/icons/youtube.svg",     "username": "", "password": "", "tmdb_provider_id": None,
+     "icon_path": "/static/icons/youtube.svg",     "tmdb_provider_id": None,
      "search_url": "https://www.youtube.com/results?search_query={query}"},
 ]
 
@@ -67,14 +66,20 @@ def load_sites() -> list[dict]:
     # Backfill fields added after the file was created (e.g. tmdb_provider_id)
     # from the shipped defaults, without clobbering stored values.
     merged = []
+    had_credentials = False
     for s in raw:
+        # Credentials are retired (sign-in is the browser's own session);
+        # scrub any stored ones so plaintext passwords don't linger on disk.
+        had_credentials |= "username" in s or "password" in s
         base = dict(_DEFAULTS_BY_SLUG.get(s["slug"], {}))
         base.update({k: v for k, v in s.items() if v not in (None, "")})
+        base.pop("username", None)
+        base.pop("password", None)
         base.setdefault("tmdb_provider_id", None)
         base.setdefault("search_url", f"https://www.{base['base_domain']}")
-        base.setdefault("username", "")
-        base.setdefault("password", "")
         merged.append(base)
+    if had_credentials:
+        save_sites(merged)
     return merged
 
 
@@ -105,7 +110,6 @@ def _clean_domain(base_domain: str) -> str:
 
 
 def add_site(name: str, base_domain: str,
-             username: str = "", password: str = "",
              tmdb_provider_id: int | None = None) -> dict:
     name = name.strip()
     slug = slugify(name)
@@ -120,8 +124,6 @@ def add_site(name: str, base_domain: str,
         "slug": slug,
         "base_domain": domain,
         "icon_path": f"/icons/{slug}.svg",
-        "username": username,
-        "password": password,
         "tmdb_provider_id": tmdb_provider_id,
         "search_url": f"https://www.{domain}",
     }
@@ -131,10 +133,8 @@ def add_site(name: str, base_domain: str,
 
 
 def update_site(slug: str, name: str, base_domain: str,
-                tmdb_provider_id: int | None, search_url: str,
-                username: str, password: str) -> dict:
-    """Update a site in place. Slug is the identity and never changes; a blank
-    password keeps the stored one."""
+                tmdb_provider_id: int | None, search_url: str) -> dict:
+    """Update a site in place. Slug is the identity and never changes."""
     sites = load_sites()
     for s in sites:
         if s["slug"] != slug:
@@ -145,9 +145,6 @@ def update_site(slug: str, name: str, base_domain: str,
         s["tmdb_provider_id"] = tmdb_provider_id
         if search_url.strip():
             s["search_url"] = search_url.strip()
-        s["username"] = username.strip()
-        if password:
-            s["password"] = password
         save_sites(sites)
         return s
     raise ValueError("Unknown site.")
@@ -159,16 +156,6 @@ def title_search_link(site: dict, query: str) -> str:
     from urllib.parse import quote_plus
     tmpl = site.get("search_url") or f"https://www.{site['base_domain']}"
     return tmpl.replace("{query}", quote_plus(query)) if "{query}" in tmpl else tmpl
-
-
-def get_credentials(slug: str) -> dict[str, str] | None:
-    site = get_site(slug) or {}
-    key = slug.upper().replace("-", "")
-    username = site.get("username") or os.environ.get(f"SVC_{key}_USERNAME", "")
-    password = site.get("password") or os.environ.get(f"SVC_{key}_PASSWORD", "")
-    if not username and not password:
-        return None
-    return {"username": username, "password": password}
 
 
 def detect_service_slug(url: str) -> str | None:

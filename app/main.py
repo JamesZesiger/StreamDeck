@@ -81,7 +81,7 @@ async def _init_db(retries: int = 10) -> None:
             await asyncio.sleep(2)
 
     # sites.json is the source of truth for the site list; sync it into the
-    # services table so titles can keep their FK. Credentials stay in the JSON.
+    # services table so titles can keep their FK.
     async with SessionLocal() as session:
         rows = {s.slug: s for s in (await session.execute(select(Service))).scalars()}
         for site in sites.load_sites():

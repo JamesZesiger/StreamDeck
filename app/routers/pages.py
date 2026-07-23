@@ -206,6 +206,13 @@ async def add_page(request: Request, session: AsyncSession = Depends(get_session
 @router.get("/sites")
 async def sites_page(request: Request, msg: str | None = None, add: str | None = None,
                      session: AsyncSession = Depends(get_session)):
+    profile = await active_profile(request, session)
+    if settings_locked(profile, request):
+        # Site management stays behind the parent PIN while a kid-mode
+        # profile is active.
+        return templates.TemplateResponse(request, "pin_gate.html", {
+            "active_profile": profile,
+        })
     title_counts = dict((await session.execute(
         select(Service.slug, func.count(Title.id))
         .outerjoin(Title).group_by(Service.slug)
@@ -215,8 +222,6 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         "slug": s["slug"],
         "base_domain": s["base_domain"],
         "icon_path": s["icon_path"],
-        "username": s.get("username", ""),
-        "password_set": bool(s.get("password")),
         "title_count": title_counts.get(s["slug"], 0),
         "tmdb_provider_id": s.get("tmdb_provider_id"),
         "search_url": s.get("search_url", ""),

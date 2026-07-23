@@ -16,8 +16,8 @@ own signed-in web players by deep-linking to your local browser.
 
 - **No downloading or capturing of media.** Nothing is written to disk except the app database.
 - **No DRM circumvention, no attestation/integrity spoofing.**
-- **No credential sharing beyond the owner's own accounts.** Credentials live in
-  `config/sites.json` (or `.env`) on the owner's machine only.
+- **No credential storage.** Sign-in is the owner's own browser session with each
+  service; the app never stores or handles account credentials.
 - **No crawling/scraping of streaming sites.** Metadata comes from the TMDB API; deep links
   resolve via the TMDB/JustWatch watch-provider data. Service pages are only ever opened to
   *play* content as a normal signed-in browser would.
@@ -62,9 +62,8 @@ back to the service's search page.
 ### Sign-in
 
 The user signs in to each service **once, manually**, in their own browser — the same browser
-that opens the deep links, so cookies are already present. Credentials in `config/sites.json`
-(or `.env` `SVC_<SLUG>_USERNAME/PASSWORD`) are stored purely as a convenience reference for
-that one-time sign-in.
+that opens the deep links, so cookies are already present. The app stores no credentials
+(an earlier convenience-vault design was dropped: the browser session is the sign-in).
 
 ## Metadata: TMDB
 
@@ -97,7 +96,6 @@ churns more.
 | `POST /api/titles` | htmx | Create title from a chosen TMDB match |
 | `PATCH /api/titles/{id}/watched` | htmx | Toggle watched |
 | `DELETE /api/titles/{id}` | htmx | Remove from library |
-| `GET /api/credentials/{slug}` | htmx | Reveal stored credentials for one-time sign-in |
 | `GET /healthz` | JSON | Liveness |
 
 ## Risks and accepted limits
