@@ -67,10 +67,8 @@
               class="rounded-lg bg-zinc-900 hover:bg-red-900/60 disabled:opacity-50 px-3 py-1.5 text-sm text-zinc-400 shrink-0">Remove all</button>
       {% endif %}
       {% if s.tmdb_provider_id %}
-      <button hx-post="/api/sites/{{ s.slug }}/preload" hx-target="#preload-msg-{{ s.slug }}" hx-swap="innerHTML"
-              hx-confirm="Add the most popular movies and shows currently on {{ s.name }} (top 20 of each)?"
-              hx-disabled-elt="this"
-              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 px-3 py-1.5 text-sm shrink-0">Add all</button>
+      <button onclick="document.getElementById('preload-form-{{ s.slug }}').classList.toggle('hidden'); this.blur()"
+              class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm shrink-0">Add all</button>
       {% endif %}
       <button onclick="document.getElementById('edit-{{ s.slug }}').classList.toggle('hidden'); this.classList.toggle('rotate-90')"
               title="Edit {{ s.name }}" aria-label="Edit {{ s.name }}"
@@ -121,11 +119,25 @@
         </div>
       </form>
     </li>
-    {% if s.tmdb_provider_id %}<li id="preload-msg-{{ s.slug }}" class="px-4 empty:hidden"></li>{% endif %}
+    {% if s.tmdb_provider_id %}
+    <li id="preload-form-{{ s.slug }}" class="hidden bg-zinc-900 ring-1 ring-zinc-800 rounded-xl px-4 py-3">
+      <form hx-post="/api/sites/{{ s.slug }}/preload" hx-target="#preload-msg-{{ s.slug }}" hx-swap="innerHTML"
+            hx-disabled-elt="find button" hx-on::after-request="this.closest('li').classList.add('hidden')"
+            class="flex flex-wrap items-center gap-3">
+        <label for="preload-count-{{ s.slug }}" class="text-sm text-zinc-400">
+          How many of {{ s.name }}'s most popular movies and shows to add (each)? 0 = the full catalog.</label>
+        <input id="preload-count-{{ s.slug }}" name="count" inputmode="numeric" pattern="[0-9]*" value="0"
+               class="w-24 rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
+        <button type="submit" class="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white disabled:opacity-50 px-4 py-1.5 text-sm font-semibold">Start import</button>
+      </form>
+    </li>
+    <li id="preload-msg-{{ s.slug }}" class="px-4 empty:hidden"></li>
+    {% endif %}
     {% endfor %}
   </ul>
-  <p class="text-xs text-zinc-600 mt-4">“Add all” imports every movie and show currently on the service from TMDB's
-    watch-provider data. It can be thousands of titles and runs in the background — refresh the page to watch the count
-    climb. Preloaded titles deep-link to the site's search page for that title.</p>
+  <p class="text-xs text-zinc-600 mt-4">“Add all” imports movies and shows currently on the service from TMDB's
+    watch-provider data, most popular first — it asks how many of each to pull, and 0 means the full catalog, which
+    can be thousands of titles. Imports run in the background — refresh the page to watch the count climb. Preloaded
+    titles deep-link to the site's search page for that title.</p>
 </div>
 {% endblock %}

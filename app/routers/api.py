@@ -272,12 +272,15 @@ async def remove_all_titles(slug: str, session: AsyncSession = Depends(get_sessi
     return Response(headers={"HX-Redirect": f"/sites?msg={quote(msg)}"})
 
 
-# "Add all" pulls a site's entire TMDB/JustWatch catalog: every movie and show
-# the provider lists in-region, no popularity floor. This can be thousands of
-# titles per site and take minutes — one detail fetch per new title. That's far
-# too long for a single HTTP request (the browser would time out before it ever
-# committed), so the import runs as a background task that commits in batches.
-PRELOAD_PER_TYPE = None  # None = no cap, walk all TMDB pages
+# "Add all" pulls a site's TMDB/JustWatch catalog. The button opens an inline
+# form asking how many titles to pull (a browser prompt() dialog proved
+# unreliable — suppressed dialogs silently cancel the request): 0 or blank
+# imports every movie and show the provider lists in-region, no popularity
+# floor; a number caps how many movies and how many shows are pulled, most
+# popular first. Full imports can be thousands of titles per site and take
+# minutes — one detail fetch per new title. That's far too long for a single
+# HTTP request (the browser would time out before it ever committed), so the
+# import runs as a background task that commits in batches.
 PRELOAD_MIN_VOTES = 0    # 0 = no audience floor, include the long tail
 PRELOAD_BATCH = 100      # titles fetched + committed per batch (bounds memory /
                          # persists partial progress if the task dies midway)
@@ -287,9 +290,10 @@ _preload_tasks: dict[str, asyncio.Task] = {}
 
 
 async def _run_preload(slug: str, service_id: int, provider_id: int,
-                       site: dict) -> None:
-    """Background worker: walk the provider's whole catalog, fetching details
-    and committing in batches so progress survives a crash or restart."""
+                       site: dict, per_type: int | None) -> None:
+    """Background worker: walk the provider's catalog (all of it, or the
+    per_type most popular of each type), fetching details and committing in
+    batches so progress survives a crash or restart."""
     sem = asyncio.Semaphore(8)
 
     async def fetch(tmdb_id: int, media_type: str) -> dict | None:
@@ -308,7 +312,7 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
             for media_type in ("movie", "tv"):
                 ids = await tmdb.discover_by_provider(
                     provider_id, media_type,
-                    limit=PRELOAD_PER_TYPE, min_votes=PRELOAD_MIN_VOTES)
+                    limit=per_type, min_votes=PRELOAD_MIN_VOTES)
                 fresh = [i for i in ids if (i, media_type) not in existing]
                 for start in range(0, len(fresh), PRELOAD_BATCH):
                     chunk = fresh[start:start + PRELOAD_BATCH]
@@ -350,8 +354,8 @@ def _preload_running_msg(slug: str) -> Response:
     """Running-import status with a Stop button, swapped into #preload-msg."""
     return Response(
         content=(
-            '<span class="text-sm text-emerald-400">Importing the full catalog '
-            'in the background — refresh the page to watch the count climb. </span>'
+            '<span class="text-sm text-emerald-400">Import running in the '
+            'background — refresh the page to watch the count climb. </span>'
             f'<button hx-post="/api/sites/{slug}/preload/stop" '
             f'hx-target="#preload-msg-{slug}" hx-swap="innerHTML" '
             'class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2 py-1 text-sm">'
@@ -361,13 +365,19 @@ def _preload_running_msg(slug: str) -> Response:
 
 
 @router.post("/sites/{slug}/preload")
-async def preload_site(slug: str, session: AsyncSession = Depends(get_session)):
+async def preload_site(slug: str, count: str = Form("0"),
+                       session: AsyncSession = Depends(get_session)):
     site = sites.get_site(slug)
     if not site:
         raise HTTPException(404, "Unknown site")
     provider_id = site.get("tmdb_provider_id")
     if not provider_id:
         return _msg("No TMDB provider id configured for this site.")
+    # How many titles of each type to pull. 0/blank = full catalog.
+    count = count.strip()
+    if count and not count.isdigit():
+        return _msg("Enter a number of titles to pull (0 = all).")
+    per_type = int(count) if count else 0
     service = (await session.execute(
         select(Service).where(Service.slug == slug)
     )).scalar_one_or_none()
@@ -379,7 +389,7 @@ async def preload_site(slug: str, session: AsyncSession = Depends(get_session)):
         return _preload_running_msg(slug)
 
     task = asyncio.create_task(
-        _run_preload(slug, service.id, provider_id, site))
+        _run_preload(slug, service.id, provider_id, site, per_type or None))
     _preload_tasks[slug] = task
     return _preload_running_msg(slug)
 
