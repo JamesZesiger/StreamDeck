@@ -18,9 +18,11 @@ own signed-in web players by deep-linking to your local browser.
 - **No DRM circumvention, no attestation/integrity spoofing.**
 - **No credential storage.** Sign-in is the owner's own browser session with each
   service; the app never stores or handles account credentials.
-- **No crawling/scraping of streaming sites.** Metadata comes from the TMDB API; deep links
-  resolve via the TMDB/JustWatch watch-provider data. Service pages are only ever opened to
-  *play* content as a normal signed-in browser would.
+- **No crawling/scraping of streaming sites.** Metadata comes from the TMDB API; availability
+  comes from the TMDB/JustWatch watch-provider data; direct title links come from Wikidata's
+  public streaming-id catalogue (e.g. Netflix ID P1874), with the site's search page as the
+  fallback. Service pages are only ever opened to *play* content as a normal signed-in
+  browser would.
 
 ## Architecture
 

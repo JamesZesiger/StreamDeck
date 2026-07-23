@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import prefs
 import sites
 import tmdb
+import wikidata
 from db import SessionLocal, get_session
 
 log = logging.getLogger(__name__)
@@ -399,6 +400,10 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                     chunk = fresh[start:start + PRELOAD_BATCH]
                     details = await asyncio.gather(
                         *(fetch(i, media_type) for i in chunk))
+                    # Direct title links where Wikidata knows the service id;
+                    # everything else falls back to the site's search page.
+                    links = await wikidata.resolve_links(
+                        slug, [(d["imdb_id"], media_type) for d in details if d])
                     for d in details:
                         if not d:
                             continue
@@ -418,7 +423,8 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                             vote_count=d["vote_count"],
                             popularity=d["popularity"],
                             certification=d["certification"],
-                            deep_link=sites.title_search_link(site, d["title"]),
+                            deep_link=(links.get(d["imdb_id"])
+                                       or sites.title_search_link(site, d["title"])),
                         ))
                         added += 1
                     await session.commit()
