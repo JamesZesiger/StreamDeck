@@ -1,8 +1,8 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import (Boolean, DateTime, Enum, ForeignKey, Integer, String, Text,
-                        UniqueConstraint, func)
+from sqlalchemy import (Boolean, DateTime, Enum, Float, ForeignKey, Integer,
+                        String, Text, UniqueConstraint, func)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -45,6 +45,10 @@ class Title(Base):
     genres: Mapped[str] = mapped_column(String(300), default="")
     # TMDB's adult flag.
     mature: Mapped[bool] = mapped_column(Boolean, default=False)
+    # TMDB community stats, refreshed only when the title is (re)fetched.
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)      # vote_average 0–10
+    vote_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    popularity: Mapped[float | None] = mapped_column(Float, nullable=True)
     deep_link: Mapped[str] = mapped_column(String(1000))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
