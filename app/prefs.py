@@ -1,10 +1,11 @@
 """App-wide preferences, stored in prefs.json next to sites.json in /data.
 
-Currently just the TMDB metadata language: every fetch (search, details,
-imports, collections) asks TMDB for text in this language. One value for the
-whole app, not per profile — background imports have no profile context.
+Holds the TMDB metadata language (every fetch asks TMDB for text in this
+language; one value for the whole app, not per profile — background imports
+have no profile context) and the parent PIN hash for kid-mode locks.
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -44,16 +45,35 @@ def get_language() -> str:
     return _language
 
 
-def set_language(lang: str) -> None:
-    global _language
+def _save(key: str, value: str) -> None:
     p = _path()
     p.parent.mkdir(parents=True, exist_ok=True)
     try:
         data = json.loads(p.read_text())
     except (OSError, ValueError):
         data = {}
-    data["language"] = lang
+    data[key] = value
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.replace(p)
+
+
+def set_language(lang: str) -> None:
+    global _language
+    _save("language", lang)
     _language = lang
+
+
+def hash_pin(pin: str) -> str:
+    return hashlib.sha256(pin.strip().encode()).hexdigest()
+
+
+def get_pin_hash() -> str:
+    try:
+        return json.loads(_path().read_text()).get("pin_hash", "")
+    except (OSError, ValueError):
+        return ""
+
+
+def set_pin(pin: str) -> None:
+    _save("pin_hash", hash_pin(pin))

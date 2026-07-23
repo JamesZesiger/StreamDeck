@@ -141,19 +141,32 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         r = await client.get(
             f"{BASE}/{media_type}/{tmdb_id}",
             params={"api_key": settings.tmdb_api_key,
-                    "language": prefs.get_language()},
+                    "language": prefs.get_language(),
+                    "append_to_response": ("release_dates" if media_type == "movie"
+                                           else "content_ratings")},
         )
         r.raise_for_status()
     d = r.json()
+    certification = ""
     if media_type == "movie":
         runtime = d.get("runtime")
         date = d.get("release_date") or ""
         title = d.get("title") or ""
+        for entry in d.get("release_dates", {}).get("results", []):
+            if entry.get("iso_3166_1") == "US":
+                certification = next(
+                    (rel["certification"] for rel in entry.get("release_dates", [])
+                     if rel.get("certification")), "")
+                break
     else:
         runtimes = d.get("episode_run_time") or []
         runtime = runtimes[0] if runtimes else None
         date = d.get("first_air_date") or ""
         title = d.get("name") or ""
+        for entry in d.get("content_ratings", {}).get("results", []):
+            if entry.get("iso_3166_1") == "US":
+                certification = entry.get("rating") or ""
+                break
     return {
         "tmdb_id": d["id"],
         "media_type": media_type,
@@ -168,4 +181,5 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "rating": d.get("vote_average"),
         "vote_count": d.get("vote_count"),
         "popularity": d.get("popularity"),
+        "certification": certification,
     }

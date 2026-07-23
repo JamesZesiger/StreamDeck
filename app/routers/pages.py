@@ -13,7 +13,8 @@ import tmdb
 from db import get_session
 from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
                     Title)
-from profiles import active_profile
+from profiles import (RATING_CAPS, active_profile, allowed_service_slugs,
+                      settings_locked, title_allowed)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -64,11 +65,14 @@ async def library(
         .where(ProfileListItem.profile_id == profile.id))).all()}
 
     decade_int = int(decade) if decade and decade.isdigit() else None
+    allowed = allowed_service_slugs(profile)
     query = select(Title).options(selectinload(Title.service)).order_by(Title.added_at.desc())
-    if profile.hide_mature:
-        query = query.where(Title.mature.is_(False))
-    if service:
-        query = query.join(Service).where(Service.slug == service)
+    if service or allowed is not None:
+        query = query.join(Service)
+        if allowed is not None:
+            query = query.where(Service.slug.in_(allowed))
+        if service:
+            query = query.where(Service.slug == service)
     if media_type in ("movie", "tv"):
         query = query.where(Title.media_type == MediaType(media_type))
     if decade_int:
@@ -77,6 +81,8 @@ async def library(
     if q and q.strip():
         query = query.where(Title.title.ilike(f"%{q.strip()}%"))
     titles = (await session.execute(query)).scalars().all()
+    if profile.max_rating_level is not None:
+        titles = [t for t in titles if title_allowed(profile, t)]
     if genre:
         # Exact match on the comma-separated list, so "Action" doesn't also
         # match "Action & Adventure".
@@ -132,6 +138,8 @@ async def library(
     services = (await session.execute(
         select(Service).where(Service.enabled).order_by(Service.name)
     )).scalars().all()
+    if allowed is not None:
+        services = [s for s in services if s.slug in allowed]
     # Genre / decade choices come from the whole library, not the filtered
     # view, so options don't disappear as filters narrow the list.
     all_rows = (await session.execute(select(Title.genres, Title.release_year))).all()
@@ -157,11 +165,30 @@ async def library(
 
 @router.get("/profiles/menu")
 async def profiles_menu(request: Request, session: AsyncSession = Depends(get_session)):
+    profile = await active_profile(request, session)
     profiles = (await session.execute(
         select(Profile).order_by(Profile.id))).scalars().all()
     return templates.TemplateResponse(request, "partials/profile_menu.html", {
         "profiles": profiles,
-        "active_profile": await active_profile(request, session),
+        "active_profile": profile,
+        "locked": settings_locked(profile, request),
+    })
+
+
+@router.get("/settings/menu")
+async def settings_menu(request: Request, session: AsyncSession = Depends(get_session)):
+    profile = await active_profile(request, session)
+    services = (await session.execute(
+        select(Service).where(Service.enabled).order_by(Service.name)
+    )).scalars().all()
+    allowed = allowed_service_slugs(profile)
+    return templates.TemplateResponse(request, "partials/settings_menu.html", {
+        "active_profile": profile,
+        "services": services,
+        "allowed": allowed,
+        "rating_caps": RATING_CAPS,
+        "locked": settings_locked(profile, request),
+        "pin_set": bool(prefs.get_pin_hash()),
     })
 
 
@@ -222,12 +249,17 @@ async def _get_title(title_id: int, session: AsyncSession) -> Title:
 async def detail(request: Request, title_id: int, session: AsyncSession = Depends(get_session)):
     title = await _get_title(title_id, session)
     profile = await active_profile(request, session)
-    if profile.hide_mature and title.mature:
+    if not title_allowed(profile, title):
         raise HTTPException(404, "Title not found")
     siblings = (await session.execute(
         select(Title).options(selectinload(Title.service))
         .where(Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type)
     )).scalars().all()
+    allowed = allowed_service_slugs(profile)
+    if allowed is not None:
+        siblings = [s for s in siblings if s.service.slug in allowed]
+        if not siblings:
+            raise HTTPException(404, "Title not found")
     providers = sorted(siblings, key=lambda r: r.service.name.lower())
     watch = (await session.execute(
         select(ProfileWatch).where(ProfileWatch.profile_id == profile.id,

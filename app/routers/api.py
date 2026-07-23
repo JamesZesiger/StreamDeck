@@ -17,7 +17,8 @@ from db import SessionLocal, get_session
 log = logging.getLogger(__name__)
 from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
                     Title)
-from profiles import active_profile, set_profile_cookie
+from profiles import (PIN_COOKIE, PIN_UNLOCK_SECONDS, RATING_CAPS,
+                      active_profile, set_profile_cookie, settings_locked)
 
 router = APIRouter(prefix="/api")
 templates = Jinja2Templates(directory="templates")
@@ -72,6 +73,7 @@ async def create_title(
         rating=details["rating"],
         vote_count=details["vote_count"],
         popularity=details["popularity"],
+        certification=details["certification"],
         deep_link=url,
     )
     session.add(title)
@@ -127,18 +129,87 @@ async def toggle_list(request: Request, title_id: int,
     return Response(content=label, media_type="text/plain")
 
 
-@router.patch("/settings/hide-mature")
-async def toggle_hide_mature(request: Request,
-                             session: AsyncSession = Depends(get_session)):
+# Kid mode: while the active profile has it on (and a PIN exists), settings
+# changes and profile switching require the PIN. Entering it sets a
+# short-lived cookie; endpoints check that server-side, the menus render a
+# PIN form instead of their contents until then.
+async def _unlocked_profile(request: Request, session: AsyncSession) -> Profile:
     profile = await active_profile(request, session)
-    profile.hide_mature = not profile.hide_mature
+    if settings_locked(profile, request):
+        raise HTTPException(403, "PIN required")
+    return profile
+
+
+@router.post("/pin/unlock")
+async def pin_unlock(pin: str = Form(...)):
+    stored = prefs.get_pin_hash()
+    if not stored or prefs.hash_pin(pin) != stored:
+        return _msg("Wrong PIN.")
+    response = Response(headers={"HX-Refresh": "true"})
+    response.set_cookie(PIN_COOKIE, stored, max_age=PIN_UNLOCK_SECONDS,
+                        httponly=True, samesite="lax")
+    return response
+
+
+@router.patch("/settings/rating-cap")
+async def set_rating_cap(request: Request, level: str = Form(""),
+                         session: AsyncSession = Depends(get_session)):
+    profile = await _unlocked_profile(request, session)
+    valid = {str(lvl) for lvl, _ in RATING_CAPS}
+    profile.max_rating_level = int(level) if level in valid else None
     await session.commit()
     return Response(headers={"HX-Refresh": "true"})
 
 
+@router.patch("/settings/service-toggle")
+async def toggle_allowed_service(request: Request, slug: str = Form(...),
+                                 session: AsyncSession = Depends(get_session)):
+    profile = await _unlocked_profile(request, session)
+    all_slugs = set((await session.execute(
+        select(Service.slug).where(Service.enabled))).scalars())
+    if slug not in all_slugs:
+        raise HTTPException(404, "Unknown service")
+    # "" means every service is allowed; expand it before toggling one off.
+    allowed = {s.strip() for s in (profile.allowed_services or "").split(",")
+               if s.strip()} or set(all_slugs)
+    allowed.symmetric_difference_update({slug})
+    # Collapse back to "" when everything is allowed again.
+    profile.allowed_services = ("" if allowed >= all_slugs
+                                else ",".join(sorted(allowed)))
+    await session.commit()
+    return Response(headers={"HX-Refresh": "true"})
+
+
+@router.patch("/settings/kid-mode")
+async def toggle_kid_mode(request: Request, pin: str = Form(""),
+                          session: AsyncSession = Depends(get_session)):
+    profile = await _unlocked_profile(request, session)
+    if not profile.kid_mode and not prefs.get_pin_hash():
+        # First enable anywhere: a PIN must exist or the lock means nothing.
+        pin = pin.strip()
+        if not (pin.isdigit() and 4 <= len(pin) <= 8):
+            return _msg("Set a 4–8 digit PIN to turn on kid mode.")
+        prefs.set_pin(pin)
+    profile.kid_mode = not profile.kid_mode
+    await session.commit()
+    return Response(headers={"HX-Refresh": "true"})
+
+
+@router.post("/settings/pin")
+async def change_pin(request: Request, pin: str = Form(...),
+                     session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
+    pin = pin.strip()
+    if not (pin.isdigit() and 4 <= len(pin) <= 8):
+        return _msg("PIN must be 4–8 digits.")
+    prefs.set_pin(pin)
+    return _msg("PIN saved.", tone="emerald")
+
+
 @router.post("/profiles")
-async def create_profile(name: str = Form(...),
+async def create_profile(request: Request, name: str = Form(...),
                          session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     name = name.strip()[:50]
     if not name:
         return _msg("Profile name required.")
@@ -156,8 +227,9 @@ async def create_profile(name: str = Form(...),
 
 
 @router.post("/profiles/{profile_id}/activate")
-async def activate_profile(profile_id: int,
+async def activate_profile(request: Request, profile_id: int,
                            session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     if not await session.get(Profile, profile_id):
         raise HTTPException(404, "Unknown profile")
     response = Response(headers={"HX-Refresh": "true"})
@@ -168,6 +240,7 @@ async def activate_profile(profile_id: int,
 @router.delete("/profiles/{profile_id}")
 async def delete_profile(request: Request, profile_id: int,
                          session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
     profiles = (await session.execute(
         select(Profile).order_by(Profile.id))).scalars().all()
     if len(profiles) <= 1:
@@ -340,6 +413,7 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                             rating=d["rating"],
                             vote_count=d["vote_count"],
                             popularity=d["popularity"],
+                            certification=d["certification"],
                             deep_link=sites.title_search_link(site, d["title"]),
                         ))
                         added += 1
@@ -438,6 +512,7 @@ async def _refresh_metadata() -> None:
                         t.rating = d["rating"]
                         t.vote_count = d["vote_count"]
                         t.popularity = d["popularity"]
+                        t.certification = d["certification"]
                 await session.commit()
                 log.info("Language refresh: %d/%d titles",
                          min(start + 100, len(keys)), len(keys))

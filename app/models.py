@@ -49,6 +49,9 @@ class Title(Base):
     rating: Mapped[float | None] = mapped_column(Float, nullable=True)      # vote_average 0–10
     vote_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     popularity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # US certification ("PG-13", "TV-MA", …). NULL = never fetched,
+    # "" = fetched but TMDB has none for this title.
+    certification: Mapped[str | None] = mapped_column(String(20), nullable=True)
     deep_link: Mapped[str] = mapped_column(String(1000))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -62,7 +65,14 @@ class Profile(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50), unique=True)
-    hide_mature: Mapped[bool] = mapped_column(
+    # Highest allowed age level (see profiles.RATING_CAPS); NULL = no cap.
+    # With a cap set, titles with no known certification are hidden too.
+    max_rating_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Comma-separated service slugs this profile may see; "" = all services.
+    allowed_services: Mapped[str] = mapped_column(
+        String(500), default="", server_default="")
+    # Kid mode: changing settings or switching profiles needs the parent PIN.
+    kid_mode: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -41,13 +41,20 @@ async def _init_db(retries: int = 10) -> None:
                     "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
                     "popularity DOUBLE PRECISION"))
                 await conn.execute(text(
-                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
-                    "hide_mature BOOLEAN NOT NULL DEFAULT FALSE"))
-                # ADD COLUMN above is a no-op once the column exists (e.g. when
-                # create_all just made it without a server default), so set the
-                # default unconditionally — the raw seed INSERT below relies on it.
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "certification VARCHAR(20)"))
+                # hide_mature is retired: the age rating cap replaces it.
                 await conn.execute(text(
-                    "ALTER TABLE profiles ALTER COLUMN hide_mature SET DEFAULT FALSE"))
+                    "ALTER TABLE profiles DROP COLUMN IF EXISTS hide_mature"))
+                await conn.execute(text(
+                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
+                    "max_rating_level INTEGER"))
+                await conn.execute(text(
+                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
+                    "allowed_services VARCHAR(500) NOT NULL DEFAULT ''"))
+                await conn.execute(text(
+                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
+                    "kid_mode BOOLEAN NOT NULL DEFAULT FALSE"))
                 # Profiles: the library is shared, watch state is per profile.
                 # Seed one profile, move the legacy global watched flag into
                 # it, then retire the old columns.
@@ -99,7 +106,9 @@ async def _backfill_details() -> None:
     try:
         async with SessionLocal() as session:
             rows = (await session.execute(
-                select(Title).where((Title.genres == "") | Title.rating.is_(None))
+                select(Title).where((Title.genres == "")
+                                    | Title.rating.is_(None)
+                                    | Title.certification.is_(None))
             )).scalars().all()
             if not rows:
                 return
@@ -127,6 +136,7 @@ async def _backfill_details() -> None:
                         t.rating = details["rating"]
                         t.vote_count = details["vote_count"]
                         t.popularity = details["popularity"]
+                        t.certification = details["certification"]
                     filled += len(titles)
             await session.commit()
             log.info("Backfilled details for %d of %d titles", filled, len(rows))
