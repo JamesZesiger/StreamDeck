@@ -15,6 +15,15 @@
       <a href="/" class="text-xl font-bold tracking-tight shrink-0 mr-auto">Stream<span class="text-red-500">Deck</span></a>
       {% block nav_extra %}{% endblock %}
       <a href="/sites" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Sites</a>
+      <select name="region" title="Watch region — only titles available here are shown"
+              hx-post="/api/settings/region" hx-trigger="change" hx-swap="none"
+              class="rounded-lg bg-transparent text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 px-1.5 py-1.5 cursor-pointer focus:outline-none border-none">
+        <option value="" class="bg-zinc-900 text-zinc-100" {{ 'selected' if not current_region() }}>ALL</option>
+        {% for code, name in regions %}
+        <option value="{{ code }}" title="{{ name }}" class="bg-zinc-900 text-zinc-100"
+                {{ 'selected' if code == current_region() }}>{{ code }}</option>
+        {% endfor %}
+      </select>
       <select name="lang" title="Metadata language"
               hx-post="/api/settings/language" hx-trigger="change" hx-swap="none"
               class="rounded-lg bg-transparent text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 px-1.5 py-1.5 cursor-pointer focus:outline-none border-none">

@@ -76,7 +76,7 @@ async def search_multi(query: str) -> list[dict]:
 
 
 async def discover_by_provider(provider_id: int, media_type: str,
-                               limit: int | None = 20, region: str = "US",
+                               limit: int | None = 20, region: str | None = None,
                                min_votes: int = 200) -> list[int]:
     """Titles currently on a watch provider (JustWatch data via TMDB) — returns
     TMDB ids, most popular first. No streaming site is touched.
@@ -84,6 +84,9 @@ async def discover_by_provider(provider_id: int, media_type: str,
     limit=None pulls the provider's entire catalog (all TMDB pages, capped at
     the API's 500-page hard limit). min_votes=0 drops the popularity floor so
     obscure/long-tail titles are included too."""
+    # Imports follow the app's region pref, so "Add all" pulls the catalog
+    # the selected region can actually watch.
+    region = region or prefs.get_region() or "US"
     ids: list[int] = []
     page = 1
     async with httpx.AsyncClient(timeout=30) as client:
@@ -142,9 +145,9 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
             f"{BASE}/{media_type}/{tmdb_id}",
             params={"api_key": settings.tmdb_api_key,
                     "language": prefs.get_language(),
-                    "append_to_response": ("release_dates,external_ids"
+                    "append_to_response": ("release_dates,external_ids,watch/providers"
                                            if media_type == "movie"
-                                           else "content_ratings,external_ids")},
+                                           else "content_ratings,external_ids,watch/providers")},
         )
         r.raise_for_status()
     d = r.json()
@@ -184,7 +187,24 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "popularity": d.get("popularity"),
         "certification": certification,
         "imdb_id": (d.get("external_ids") or {}).get("imdb_id") or "",
+        # {country code: {provider ids streaming it there}} — flatrate/free/ads
+        # offers only (rent/buy isn't "watchable on the service").
+        "provider_regions": {
+            country: ids
+            for country, offers in (d.get("watch/providers", {}).get("results") or {}).items()
+            if (ids := {p["provider_id"]
+                        for kind in ("flatrate", "free", "ads")
+                        for p in offers.get(kind, [])})
+        },
     }
+
+
+def regions_for_provider(provider_regions: dict, provider_id: int | None) -> str:
+    """Comma-separated country codes where this provider streams the title."""
+    if not provider_id:
+        return ""
+    return ", ".join(sorted(
+        c for c, ids in provider_regions.items() if provider_id in ids))
 
 
 async def get_imdb_id(tmdb_id: int, media_type: str) -> str:

@@ -59,6 +59,7 @@ async def create_title(
     if not service:
         raise HTTPException(400, "Unknown service")
     details = await tmdb.get_details(tmdb_id, media_type)
+    site = sites.get_site(service.slug) or {}
     title = Title(
         service_id=service.id,
         tmdb_id=details["tmdb_id"],
@@ -75,6 +76,8 @@ async def create_title(
         vote_count=details["vote_count"],
         popularity=details["popularity"],
         certification=details["certification"],
+        regions=tmdb.regions_for_provider(
+            details["provider_regions"], site.get("tmdb_provider_id")),
         deep_link=url,
     )
     session.add(title)
@@ -423,6 +426,8 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                             vote_count=d["vote_count"],
                             popularity=d["popularity"],
                             certification=d["certification"],
+                            regions=tmdb.regions_for_provider(
+                                d["provider_regions"], provider_id),
                             deep_link=(links.get(d["imdb_id"])
                                        or sites.title_search_link(site, d["title"])),
                         ))
@@ -503,6 +508,13 @@ async def _refresh_metadata() -> None:
 
     try:
         async with SessionLocal() as session:
+            provider_by_service = {}
+            slugs = {s.id: s.slug for s in (
+                await session.execute(select(Service))).scalars()}
+            site_providers = {s["slug"]: s.get("tmdb_provider_id")
+                              for s in sites.load_sites()}
+            for service_id, slug in slugs.items():
+                provider_by_service[service_id] = site_providers.get(slug)
             rows = (await session.execute(select(Title))).scalars().all()
             by_key: dict[tuple, list[Title]] = {}
             for t in rows:
@@ -524,6 +536,9 @@ async def _refresh_metadata() -> None:
                         t.vote_count = d["vote_count"]
                         t.popularity = d["popularity"]
                         t.certification = d["certification"]
+                        t.regions = tmdb.regions_for_provider(
+                            d["provider_regions"],
+                            provider_by_service.get(t.service_id))
                 await session.commit()
                 log.info("Language refresh: %d/%d titles",
                          min(start + 100, len(keys)), len(keys))
@@ -533,6 +548,16 @@ async def _refresh_metadata() -> None:
         raise
     except Exception:
         log.exception("Language refresh failed")
+
+
+@router.post("/settings/region")
+async def change_region(request: Request, region: str = Form(""),
+                        session: AsyncSession = Depends(get_session)):
+    await _unlocked_profile(request, session)
+    if region and region not in {code for code, _ in prefs.REGIONS}:
+        raise HTTPException(400, "Unknown region")
+    prefs.set_region(region)
+    return Response(headers={"HX-Refresh": "true"})
 
 
 @router.post("/settings/language")

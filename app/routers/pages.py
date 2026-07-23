@@ -18,9 +18,11 @@ from profiles import (RATING_CAPS, active_profile, allowed_service_slugs,
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-# Toolbar language picker (base.html) renders on every page.
+# Toolbar language and region pickers (base.html) render on every page.
 templates.env.globals["languages"] = prefs.LANGUAGES
 templates.env.globals["current_language"] = prefs.get_language
+templates.env.globals["regions"] = prefs.REGIONS
+templates.env.globals["current_region"] = prefs.get_region
 
 # Collection details never really change; fetch each id from TMDB once.
 _collection_cache: dict[int, dict] = {}
@@ -83,6 +85,13 @@ async def library(
     titles = (await session.execute(query)).scalars().all()
     if profile.max_rating_level is not None:
         titles = [t for t in titles if title_allowed(profile, t)]
+    # Region pref: only titles watchable there. Titles with no availability
+    # data (custom sites, TMDB gaps) stay visible — unknown isn't unavailable.
+    region = prefs.get_region()
+    if region:
+        titles = [t for t in titles
+                  if not t.regions
+                  or region in (r.strip() for r in t.regions.split(","))]
     if genre:
         # Exact match on the comma-separated list, so "Action" doesn't also
         # match "Action & Adventure".
