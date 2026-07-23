@@ -34,6 +34,11 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
                     "hide_mature BOOLEAN NOT NULL DEFAULT FALSE"))
+                # ADD COLUMN above is a no-op once the column exists (e.g. when
+                # create_all just made it without a server default), so set the
+                # default unconditionally — the raw seed INSERT below relies on it.
+                await conn.execute(text(
+                    "ALTER TABLE profiles ALTER COLUMN hide_mature SET DEFAULT FALSE"))
                 # Profiles: the library is shared, watch state is per profile.
                 # Seed one profile, move the legacy global watched flag into
                 # it, then retire the old columns.
