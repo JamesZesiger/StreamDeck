@@ -74,33 +74,40 @@ async def search_multi(query: str) -> list[dict]:
 
 
 async def discover_by_provider(provider_id: int, media_type: str,
-                               limit: int = 20, region: str = "US") -> list[int]:
-    """Most popular titles currently on a watch provider (JustWatch data via
-    TMDB) — returns TMDB ids, most popular first. No streaming site is touched."""
+                               limit: int | None = 20, region: str = "US",
+                               min_votes: int = 200) -> list[int]:
+    """Titles currently on a watch provider (JustWatch data via TMDB) — returns
+    TMDB ids, most popular first. No streaming site is touched.
+
+    limit=None pulls the provider's entire catalog (all TMDB pages, capped at
+    the API's 500-page hard limit). min_votes=0 drops the popularity floor so
+    obscure/long-tail titles are included too."""
     ids: list[int] = []
     page = 1
-    async with httpx.AsyncClient(timeout=15) as client:
-        while len(ids) < limit and page <= 5:
-            r = await client.get(
-                f"{BASE}/discover/{media_type}",
-                params={
-                    "api_key": settings.tmdb_api_key,
-                    "with_watch_providers": provider_id,
-                    "watch_region": region,
-                    "sort_by": "popularity.desc",
-                    # TMDB popularity is easily gamed by obscure titles; require
-                    # a real audience so "top" means recognizable content.
-                    "vote_count.gte": 200,
-                    "page": page,
-                },
-            )
+    async with httpx.AsyncClient(timeout=30) as client:
+        while limit is None or len(ids) < limit:
+            # TMDB refuses page numbers above 500, regardless of total_pages.
+            if page > 500:
+                break
+            params = {
+                "api_key": settings.tmdb_api_key,
+                "with_watch_providers": provider_id,
+                "watch_region": region,
+                "sort_by": "popularity.desc",
+                "page": page,
+            }
+            # TMDB popularity is easily gamed by obscure titles; an optional
+            # audience floor keeps "top" lists recognizable.
+            if min_votes:
+                params["vote_count.gte"] = min_votes
+            r = await client.get(f"{BASE}/discover/{media_type}", params=params)
             r.raise_for_status()
             data = r.json()
             ids.extend(item["id"] for item in data.get("results", []))
             if page >= data.get("total_pages", 1):
                 break
             page += 1
-    return ids[:limit]
+    return ids if limit is None else ids[:limit]
 
 
 async def get_collection(collection_id: int) -> dict:
@@ -127,7 +134,7 @@ async def get_collection(collection_id: int) -> dict:
 
 
 async def get_details(tmdb_id: int, media_type: str) -> dict:
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(
             f"{BASE}/{media_type}/{tmdb_id}", params={"api_key": settings.tmdb_api_key}
         )

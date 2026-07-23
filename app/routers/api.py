@@ -1,5 +1,6 @@
 import asyncio
 import html
+import logging
 from urllib.parse import quote
 
 import httpx
@@ -10,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import sites
 import tmdb
-from db import get_session
+from db import SessionLocal, get_session
+
+log = logging.getLogger(__name__)
 from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
                     Title)
 from profiles import active_profile, set_profile_cookie
@@ -269,7 +272,92 @@ async def remove_all_titles(slug: str, session: AsyncSession = Depends(get_sessi
     return Response(headers={"HX-Redirect": f"/sites?msg={quote(msg)}"})
 
 
-PRELOAD_PER_TYPE = 20  # top-N movies + top-N shows per click
+# "Add all" pulls a site's entire TMDB/JustWatch catalog: every movie and show
+# the provider lists in-region, no popularity floor. This can be thousands of
+# titles per site and take minutes — one detail fetch per new title. That's far
+# too long for a single HTTP request (the browser would time out before it ever
+# committed), so the import runs as a background task that commits in batches.
+PRELOAD_PER_TYPE = None  # None = no cap, walk all TMDB pages
+PRELOAD_MIN_VOTES = 0    # 0 = no audience floor, include the long tail
+PRELOAD_BATCH = 100      # titles fetched + committed per batch (bounds memory /
+                         # persists partial progress if the task dies midway)
+
+# Slug -> running import task, so a second click doesn't start a duplicate run.
+_preload_tasks: dict[str, asyncio.Task] = {}
+
+
+async def _run_preload(slug: str, service_id: int, provider_id: int,
+                       site: dict) -> None:
+    """Background worker: walk the provider's whole catalog, fetching details
+    and committing in batches so progress survives a crash or restart."""
+    sem = asyncio.Semaphore(8)
+
+    async def fetch(tmdb_id: int, media_type: str) -> dict | None:
+        async with sem:
+            try:
+                return await tmdb.get_details(tmdb_id, media_type)
+            except Exception:
+                return None  # skip a single bad/rate-limited title, keep going
+
+    added = 0
+    try:
+        async with SessionLocal() as session:
+            existing = {(t.tmdb_id, t.media_type.value) for t in (await session.execute(
+                select(Title).where(Title.service_id == service_id)
+            )).scalars()}
+            for media_type in ("movie", "tv"):
+                ids = await tmdb.discover_by_provider(
+                    provider_id, media_type,
+                    limit=PRELOAD_PER_TYPE, min_votes=PRELOAD_MIN_VOTES)
+                fresh = [i for i in ids if (i, media_type) not in existing]
+                for start in range(0, len(fresh), PRELOAD_BATCH):
+                    chunk = fresh[start:start + PRELOAD_BATCH]
+                    details = await asyncio.gather(
+                        *(fetch(i, media_type) for i in chunk))
+                    for d in details:
+                        if not d:
+                            continue
+                        session.add(Title(
+                            service_id=service_id,
+                            tmdb_id=d["tmdb_id"],
+                            media_type=MediaType(d["media_type"]),
+                            title=d["title"],
+                            overview=d["overview"],
+                            poster_url=d["poster_url"],
+                            backdrop_url=d["backdrop_url"],
+                            runtime_minutes=d["runtime_minutes"],
+                            release_year=d["release_year"],
+                            genres=d["genres"],
+                            mature=d["mature"],
+                            deep_link=sites.title_search_link(site, d["title"]),
+                        ))
+                        added += 1
+                    await session.commit()
+                    log.info("Preload %s: committed %d/%d %s",
+                             slug, min(start + PRELOAD_BATCH, len(fresh)),
+                             len(fresh), media_type)
+        log.info("Preload %s finished: added %d titles", slug, added)
+    except asyncio.CancelledError:
+        # User hit Stop. Batches already committed above are kept; the
+        # in-flight batch (if any) is rolled back when the session closes.
+        log.info("Preload %s stopped by user after %d titles", slug, added)
+        raise
+    except Exception:
+        log.exception("Preload %s failed after %d titles", slug, added)
+
+
+def _preload_running_msg(slug: str) -> Response:
+    """Running-import status with a Stop button, swapped into #preload-msg."""
+    return Response(
+        content=(
+            '<span class="text-sm text-emerald-400">Importing the full catalog '
+            'in the background — refresh the page to watch the count climb. </span>'
+            f'<button hx-post="/api/sites/{slug}/preload/stop" '
+            f'hx-target="#preload-msg-{slug}" hx-swap="innerHTML" '
+            'class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-2 py-1 text-sm">'
+            'Stop</button>'),
+        media_type="text/html",
+    )
 
 
 @router.post("/sites/{slug}/preload")
@@ -286,42 +374,21 @@ async def preload_site(slug: str, session: AsyncSession = Depends(get_session)):
     if not service:
         return _msg("Site not synced to the database yet — restart the app.")
 
-    existing = {(t.tmdb_id, t.media_type.value) for t in (await session.execute(
-        select(Title).where(Title.service_id == service.id)
-    )).scalars()}
+    running = _preload_tasks.get(slug)
+    if running and not running.done():
+        return _preload_running_msg(slug)
 
-    sem = asyncio.Semaphore(8)
+    task = asyncio.create_task(
+        _run_preload(slug, service.id, provider_id, site))
+    _preload_tasks[slug] = task
+    return _preload_running_msg(slug)
 
-    async def fetch(tmdb_id: int, media_type: str) -> dict:
-        async with sem:
-            return await tmdb.get_details(tmdb_id, media_type)
 
-    added = skipped = 0
-    try:
-        for media_type in ("movie", "tv"):
-            ids = await tmdb.discover_by_provider(provider_id, media_type,
-                                                  limit=PRELOAD_PER_TYPE)
-            fresh = [i for i in ids if (i, media_type) not in existing]
-            skipped += len(ids) - len(fresh)
-            details = await asyncio.gather(*(fetch(i, media_type) for i in fresh))
-            for d in details:
-                session.add(Title(
-                    service_id=service.id,
-                    tmdb_id=d["tmdb_id"],
-                    media_type=MediaType(d["media_type"]),
-                    title=d["title"],
-                    overview=d["overview"],
-                    poster_url=d["poster_url"],
-                    backdrop_url=d["backdrop_url"],
-                    runtime_minutes=d["runtime_minutes"],
-                    release_year=d["release_year"],
-                    genres=d["genres"],
-                    mature=d["mature"],
-                    deep_link=sites.title_search_link(site, d["title"]),
-                ))
-                added += 1
-    except httpx.HTTPStatusError as exc:
-        return _msg(f"TMDB request failed ({exc.response.status_code}) — check TMDB_API_KEY.")
-    await session.commit()
-    return _msg(f"Added {added} titles" + (f", {skipped} already in library" if skipped else ""),
-                tone="emerald")
+@router.post("/sites/{slug}/preload/stop")
+async def stop_preload(slug: str):
+    task = _preload_tasks.get(slug)
+    if not task or task.done():
+        return _msg("No import is running for this site.")
+    task.cancel()
+    return _msg("Import stopped — titles already imported are kept. "
+                "Refresh to see the total.", tone="emerald")
