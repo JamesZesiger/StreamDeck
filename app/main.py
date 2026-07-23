@@ -44,6 +44,9 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
                     "certification VARCHAR(20)"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "regions TEXT"))
                 # hide_mature is retired: the age rating cap replaces it.
                 await conn.execute(text(
                     "ALTER TABLE profiles DROP COLUMN IF EXISTS hide_mature"))
@@ -106,10 +109,17 @@ async def _backfill_details() -> None:
     those columns existed."""
     try:
         async with SessionLocal() as session:
+            slugs = {s.id: s.slug for s in (
+                await session.execute(select(Service))).scalars()}
+            site_providers = {s["slug"]: s.get("tmdb_provider_id")
+                              for s in sites.load_sites()}
+            provider_by_service = {sid: site_providers.get(slug)
+                                   for sid, slug in slugs.items()}
             rows = (await session.execute(
                 select(Title).where((Title.genres == "")
                                     | Title.rating.is_(None)
-                                    | Title.certification.is_(None))
+                                    | Title.certification.is_(None)
+                                    | Title.regions.is_(None))
             )).scalars().all()
             if not rows:
                 return
@@ -138,6 +148,9 @@ async def _backfill_details() -> None:
                         t.vote_count = details["vote_count"]
                         t.popularity = details["popularity"]
                         t.certification = details["certification"]
+                        t.regions = tmdb.regions_for_provider(
+                            details["provider_regions"],
+                            provider_by_service.get(t.service_id))
                     filled += len(titles)
             await session.commit()
             log.info("Backfilled details for %d of %d titles", filled, len(rows))

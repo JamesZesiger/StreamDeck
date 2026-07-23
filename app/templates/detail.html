@@ -31,8 +31,14 @@
         {% for p in providers %}
         <div class="flex items-center gap-3 bg-zinc-900/70 ring-1 ring-zinc-800 rounded-xl px-4 py-2.5">
           <img src="{{ p.service.icon_path }}" alt="" class="w-7 h-7 rounded-md">
-          <span class="flex-1 font-medium">{{ p.service.name }}
+          <span class="flex-1 min-w-0 font-medium">{{ p.service.name }}
             {% if loop.first and providers|length > 1 %}<span class="ml-2 text-xs text-zinc-500">default</span>{% endif %}
+            {% if p.regions %}
+            {% set codes = p.regions.split(', ') %}
+            <span class="block text-xs text-zinc-500 truncate" title="Available in: {{ p.regions }}">
+              🌐 {{ codes[:8] | join(' · ') }}{% if codes | length > 8 %} +{{ codes | length - 8 }} more{% endif %}
+            </span>
+            {% endif %}
           </span>
           <a href="{{ p.deep_link }}" target="_blank" rel="noopener"
              class="rounded-lg {{ 'bg-red-600 hover:bg-red-500' if loop.first else 'bg-zinc-700 hover:bg-zinc-600' }} px-5 py-1.5 text-sm font-semibold">▶ Play</a>

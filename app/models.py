@@ -52,6 +52,9 @@ class Title(Base):
     # US certification ("PG-13", "TV-MA", …). NULL = never fetched,
     # "" = fetched but TMDB has none for this title.
     certification: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Comma-separated ISO country codes where this row's service streams the
+    # title (TMDB/JustWatch watch-provider data). NULL = never fetched.
+    regions: Mapped[str | None] = mapped_column(Text, nullable=True)
     deep_link: Mapped[str] = mapped_column(String(1000))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

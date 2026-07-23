@@ -27,7 +27,29 @@ LANGUAGES = [
     ("hi-IN", "HI", "हिन्दी"),
 ]
 
+DEFAULT_REGION = "US"
+
+# (ISO country code, name) choices for the toolbar region picker; the library
+# only shows titles watchable in this region ("" = everywhere).
+REGIONS = [
+    ("US", "United States"),
+    ("CA", "Canada"),
+    ("GB", "United Kingdom"),
+    ("AU", "Australia"),
+    ("DE", "Germany"),
+    ("FR", "France"),
+    ("ES", "Spain"),
+    ("IT", "Italy"),
+    ("BR", "Brazil"),
+    ("MX", "Mexico"),
+    ("NL", "Netherlands"),
+    ("JP", "Japan"),
+    ("KR", "South Korea"),
+    ("IN", "India"),
+]
+
 _language: str | None = None  # in-memory cache; one process owns the file
+_region: str | None = None
 
 
 def _path() -> Path:
@@ -62,6 +84,23 @@ def set_language(lang: str) -> None:
     global _language
     _save("language", lang)
     _language = lang
+
+
+def get_region() -> str:
+    global _region
+    if _region is None:
+        try:
+            _region = json.loads(_path().read_text()).get(
+                "region", DEFAULT_REGION)
+        except (OSError, ValueError):
+            _region = DEFAULT_REGION
+    return _region
+
+
+def set_region(region: str) -> None:
+    global _region
+    _save("region", region)
+    _region = region
 
 
 def hash_pin(pin: str) -> str:
