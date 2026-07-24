@@ -1,18 +1,16 @@
-"""Dynamic site registry backed by a JSON file.
-
-SITES_FILE (default /data/sites.json, volume-mounted from ./config) is the
-source of truth for which streaming sites exist. Created with the default six
-sites on first startup, then synced into the services table so titles can
-reference sites by FK. Sign-in happens in the browser (the user's own session
-cookies with each site) — no credentials are stored anywhere.
-Manual edits to the file apply on app restart.
+"""Site helpers. Sites live in the services table, one set per account —
+DEFAULT_SITES seeds each new account at registration, and site CRUD edits
+the account's rows directly. sites.json (the pre-account source of truth)
+is only read once at startup to migrate legacy rows. Sign-in happens in the
+browser (the user's own session cookies with each site) — no credentials
+are stored anywhere.
 """
 
 import hashlib
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 from config import settings
 
@@ -40,8 +38,6 @@ DEFAULT_SITES = [
      "search_url": "https://www.youtube.com/results?search_query={query}"},
 ]
 
-_DEFAULTS_BY_SLUG = {s["slug"]: s for s in DEFAULT_SITES}
-
 ALT_DOMAINS = {
     "amazon.com": "primevideo",
     "youtu.be": "youtube",
@@ -52,55 +48,20 @@ ICON_COLORS = ["#b1060f", "#0a3d91", "#1ca66c", "#1399ff", "#2723c8",
                "#e02020", "#9333ea", "#0d9488", "#ca8a04", "#db2777"]
 
 
-def _path() -> Path:
-    return Path(settings.sites_file)
-
-
-def load_sites() -> list[dict]:
-    p = _path()
-    if not p.exists():
-        save_sites([dict(s) for s in DEFAULT_SITES])
-        return [dict(s) for s in DEFAULT_SITES]
-    with p.open() as f:
-        raw = json.load(f).get("sites", [])
-    # Backfill fields added after the file was created (e.g. tmdb_provider_id)
-    # from the shipped defaults, without clobbering stored values.
-    merged = []
-    had_credentials = False
-    for s in raw:
-        # Credentials are retired (sign-in is the browser's own session);
-        # scrub any stored ones so plaintext passwords don't linger on disk.
-        had_credentials |= "username" in s or "password" in s
-        base = dict(_DEFAULTS_BY_SLUG.get(s["slug"], {}))
-        base.update({k: v for k, v in s.items() if v not in (None, "")})
-        base.pop("username", None)
-        base.pop("password", None)
-        base.setdefault("tmdb_provider_id", None)
-        base.setdefault("search_url", f"https://www.{base['base_domain']}")
-        merged.append(base)
-    if had_credentials:
-        save_sites(merged)
-    return merged
-
-
-def save_sites(sites: list[dict]) -> None:
-    p = _path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    with tmp.open("w") as f:
-        json.dump({"sites": sites}, f, indent=2)
-    tmp.replace(p)
-
-
-def get_site(slug: str) -> dict | None:
-    return next((s for s in load_sites() if s["slug"] == slug), None)
+def load_legacy_sites() -> list[dict]:
+    """The pre-account sites.json contents, for the one-time startup
+    migration into the services table. [] when absent or unreadable."""
+    try:
+        return json.loads(Path(settings.sites_file).read_text()).get("sites", [])
+    except (OSError, ValueError):
+        return []
 
 
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
 
 
-def _clean_domain(base_domain: str) -> str:
+def clean_domain(base_domain: str) -> str:
     domain = base_domain.strip().lower()
     domain = re.sub(r"^https?://", "", domain).split("/")[0]
     domain = domain.removeprefix("www.")
@@ -109,62 +70,28 @@ def _clean_domain(base_domain: str) -> str:
     return domain
 
 
-def add_site(name: str, base_domain: str,
-             tmdb_provider_id: int | None = None) -> dict:
-    name = name.strip()
-    slug = slugify(name)
-    if not slug:
-        raise ValueError("Site name must contain letters or numbers.")
-    sites = load_sites()
-    if any(s["slug"] == slug for s in sites):
-        raise ValueError(f"A site named “{name}” already exists.")
-    domain = _clean_domain(base_domain)
-    site = {
-        "name": name,
-        "slug": slug,
-        "base_domain": domain,
-        "icon_path": f"/icons/{slug}.svg",
-        "tmdb_provider_id": tmdb_provider_id,
-        "search_url": f"https://www.{domain}",
-    }
-    sites.append(site)
-    save_sites(sites)
-    return site
-
-
-def update_site(slug: str, name: str, base_domain: str,
-                tmdb_provider_id: int | None, search_url: str) -> dict:
-    """Update a site in place. Slug is the identity and never changes."""
-    sites = load_sites()
-    for s in sites:
-        if s["slug"] != slug:
-            continue
-        if name.strip():
-            s["name"] = name.strip()
-        s["base_domain"] = _clean_domain(base_domain)
-        s["tmdb_provider_id"] = tmdb_provider_id
-        if search_url.strip():
-            s["search_url"] = search_url.strip()
-        save_sites(sites)
-        return s
-    raise ValueError("Unknown site.")
-
-
-def title_search_link(site: dict, query: str) -> str:
+def title_search_link(search_url: str, base_domain: str, query: str) -> str:
     """Deep link for a title whose exact URL we don't know: the site's search
     page for that title (or just the site) — never a scraped URL."""
-    from urllib.parse import quote_plus
-    tmpl = site.get("search_url") or f"https://www.{site['base_domain']}"
+    tmpl = search_url or f"https://www.{base_domain}"
     return tmpl.replace("{query}", quote_plus(query)) if "{query}" in tmpl else tmpl
 
 
-def detect_service_slug(url: str) -> str | None:
+def detect_service(url: str, services):
+    """The Service row (from the given account's services) a URL belongs to,
+    or None. Alternate domains (youtu.be, ...) map onto the matching slug."""
     host = (urlparse(url).hostname or "").lower()
-    domains = dict(ALT_DOMAINS)
-    domains.update({s["base_domain"]: s["slug"] for s in load_sites()})
-    for domain, slug in domains.items():
-        if host == domain or host.endswith("." + domain):
-            return slug
+
+    def matches(domain: str) -> bool:
+        return host == domain or host.endswith("." + domain)
+
+    for s in services:
+        if matches(s.base_domain):
+            return s
+    by_slug = {s.slug: s for s in services}
+    for domain, slug in ALT_DOMAINS.items():
+        if matches(domain) and slug in by_slug:
+            return by_slug[slug]
     return None
 
 

@@ -70,13 +70,13 @@ async def library(
 
     decade_int = int(decade) if decade and decade.isdigit() else None
     allowed = allowed_service_slugs(profile)
-    query = select(Title).options(selectinload(Title.service)).order_by(Title.added_at.desc())
-    if service or allowed is not None:
-        query = query.join(Service)
-        if allowed is not None:
-            query = query.where(Service.slug.in_(allowed))
-        if service:
-            query = query.where(Service.slug == service)
+    query = (select(Title).options(selectinload(Title.service))
+             .join(Service).where(Service.account_id == profile.account_id)
+             .order_by(Title.added_at.desc()))
+    if allowed is not None:
+        query = query.where(Service.slug.in_(allowed))
+    if service:
+        query = query.where(Service.slug == service)
     if media_type in ("movie", "tv"):
         query = query.where(Title.media_type == MediaType(media_type))
     if decade_int:
@@ -163,13 +163,17 @@ async def library(
                                           {"groups": groups, "q": q})
 
     services = (await session.execute(
-        select(Service).where(Service.enabled).order_by(Service.name)
+        select(Service).where(Service.enabled,
+                              Service.account_id == profile.account_id)
+        .order_by(Service.name)
     )).scalars().all()
     if allowed is not None:
         services = [s for s in services if s.slug in allowed]
     # Genre / decade choices come from the whole library, not the filtered
     # view, so options don't disappear as filters narrow the list.
-    all_rows = (await session.execute(select(Title.genres, Title.release_year))).all()
+    all_rows = (await session.execute(
+        select(Title.genres, Title.release_year).join(Service)
+        .where(Service.account_id == profile.account_id))).all()
     genres = sorted({g.strip() for gs, _ in all_rows for g in gs.split(",") if g.strip()})
     decades = sorted({(y // 10) * 10 for _, y in all_rows if y}, reverse=True)
     return templates.TemplateResponse(request, "library.html", {
@@ -214,7 +218,9 @@ async def profiles_menu(request: Request, session: AsyncSession = Depends(get_se
 async def settings_menu(request: Request, session: AsyncSession = Depends(get_session)):
     profile = await active_profile(request, session)
     services = (await session.execute(
-        select(Service).where(Service.enabled).order_by(Service.name)
+        select(Service).where(Service.enabled,
+                              Service.account_id == profile.account_id)
+        .order_by(Service.name)
     )).scalars().all()
     allowed = allowed_service_slugs(profile)
     return templates.TemplateResponse(request, "partials/settings_menu.html", {
@@ -229,78 +235,87 @@ async def settings_menu(request: Request, session: AsyncSession = Depends(get_se
 
 @router.get("/add")
 async def add_page(request: Request, session: AsyncSession = Depends(get_session)):
+    profile = await active_profile(request, session)
     services = (await session.execute(
-        select(Service).where(Service.enabled).order_by(Service.name)
+        select(Service).where(Service.enabled,
+                              Service.account_id == profile.account_id)
+        .order_by(Service.name)
     )).scalars().all()
     return templates.TemplateResponse(request, "add.html", {
         "services": services,
-        "active_profile": await active_profile(request, session),
+        "active_profile": profile,
     })
 
 
 @router.get("/sites")
-async def sites_page():
-    """Site management moved behind the admin panel."""
-    return RedirectResponse("/admin", status_code=303)
+async def sites_page(request: Request, msg: str | None = None, add: str | None = None,
+                     session: AsyncSession = Depends(get_session)):
+    """The account's sites. Kid mode keeps management behind the parent PIN."""
+    profile = await active_profile(request, session)
+    if settings_locked(profile, request):
+        return templates.TemplateResponse(request, "pin_gate.html", {
+            "active_profile": profile,
+        })
+    title_counts = dict((await session.execute(
+        select(Service.id, func.count(Title.id))
+        .outerjoin(Title).group_by(Service.id)
+    )).all())
+    services = (await session.execute(
+        select(Service).where(Service.account_id == profile.account_id)
+        .order_by(Service.name)
+    )).scalars().all()
+    site_rows = [{
+        "name": s.name,
+        "slug": s.slug,
+        "base_domain": s.base_domain,
+        "icon_path": s.icon_path,
+        "title_count": title_counts.get(s.id, 0),
+        "tmdb_provider_id": s.tmdb_provider_id,
+        "search_url": s.search_url,
+    } for s in services]
+    return templates.TemplateResponse(request, "sites.html", {
+        "sites": site_rows, "msg": msg, "show_add": bool(add),
+        "active_profile": profile,
+    })
 
 
 @router.get("/admin")
-async def admin_page(request: Request, msg: str | None = None, add: str | None = None,
-                     session: AsyncSession = Depends(get_session)):
-    """Admin panel (site management). Its credentials are separate from user
-    accounts: unclaimed on first visit (setup form), then a login form until
-    the short-lived admin cookie is present."""
+async def admin_page(request: Request):
+    """Admin area — an empty placeholder for future admin-only tools. Its
+    credentials are separate from user accounts: unclaimed on first visit
+    (setup form), then a login form until the short-lived cookie is present."""
     if not prefs.get_admin_hash():
         return templates.TemplateResponse(request, "admin_auth.html",
                                           {"mode": "setup"})
     if not auth.admin_authed(request):
         return templates.TemplateResponse(request, "admin_auth.html",
                                           {"mode": "login"})
-    title_counts = dict((await session.execute(
-        select(Service.slug, func.count(Title.id))
-        .outerjoin(Title).group_by(Service.slug)
-    )).all())
-    site_rows = [{
-        "name": s["name"],
-        "slug": s["slug"],
-        "base_domain": s["base_domain"],
-        "icon_path": s["icon_path"],
-        "title_count": title_counts.get(s["slug"], 0),
-        "tmdb_provider_id": s.get("tmdb_provider_id"),
-        "search_url": s.get("search_url", ""),
-    } for s in sites.load_sites()]
-    return templates.TemplateResponse(request, "admin.html", {
-        "sites": site_rows, "msg": msg, "show_add": bool(add),
-    })
+    return templates.TemplateResponse(request, "admin.html", {})
 
 
-@router.get("/icons/{slug}.svg")
-async def site_icon(slug: str):
-    site = sites.get_site(slug)
-    if not site:
+@router.get("/icons/{service_id}.svg")
+async def site_icon(service_id: int, session: AsyncSession = Depends(get_session)):
+    service = await session.get(Service, service_id)
+    if not service:
         raise HTTPException(404)
-    return Response(content=sites.icon_svg(site["slug"], site["name"]),
+    return Response(content=sites.icon_svg(service.slug, service.name),
                     media_type="image/svg+xml")
-
-
-async def _get_title(title_id: int, session: AsyncSession) -> Title:
-    title = (await session.execute(
-        select(Title).options(selectinload(Title.service)).where(Title.id == title_id)
-    )).scalar_one_or_none()
-    if not title:
-        raise HTTPException(404, "Title not found")
-    return title
 
 
 @router.get("/titles/{title_id}")
 async def detail(request: Request, title_id: int, session: AsyncSession = Depends(get_session)):
-    title = await _get_title(title_id, session)
     profile = await active_profile(request, session)
-    if not title_allowed(profile, title):
+    title = (await session.execute(
+        select(Title).options(selectinload(Title.service)).join(Service)
+        .where(Title.id == title_id,
+               Service.account_id == profile.account_id)
+    )).scalar_one_or_none()
+    if not title or not title_allowed(profile, title):
         raise HTTPException(404, "Title not found")
     siblings = (await session.execute(
-        select(Title).options(selectinload(Title.service))
-        .where(Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type)
+        select(Title).options(selectinload(Title.service)).join(Service)
+        .where(Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type,
+               Service.account_id == profile.account_id)
     )).scalars().all()
     allowed = allowed_service_slugs(profile)
     if allowed is not None:

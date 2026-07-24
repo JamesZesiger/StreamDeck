@@ -2,9 +2,9 @@
 
 Accounts are username+password rows in Postgres (no email); the browser
 holds an HMAC-signed, expiring session cookie, so there's no server-side
-session table. The admin area (/admin) uses its own single credential pair
-stored in prefs.json — deliberately separate from user accounts — with a
-much shorter-lived cookie.
+session table. The admin area (/admin, currently an empty placeholder) uses
+its own single credential pair stored in prefs.json — deliberately separate
+from user accounts — with a much shorter-lived cookie.
 """
 
 import hashlib
@@ -110,6 +110,7 @@ def admin_authed(request: Request) -> bool:
 
 
 def require_admin(request: Request) -> None:
+    """Guard for future admin-only endpoints."""
     if not admin_authed(request):
         raise _redirect(request, "/admin", "Admin sign-in required")
 

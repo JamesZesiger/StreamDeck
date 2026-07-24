@@ -10,7 +10,7 @@ import sites
 import tmdb
 import wikidata
 from db import SessionLocal, engine
-from models import Base, Service, Title
+from models import Account, Base, Service, Title
 from routers import accounts, api, pages
 
 log = logging.getLogger(__name__)
@@ -70,6 +70,33 @@ async def _init_db(retries: int = 10) -> None:
                 # Profile names are now unique per account, not globally.
                 await conn.execute(text(
                     "ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_name_key"))
+                # Sites (and through them titles) are per account: services
+                # gain an owner plus the config that used to live in
+                # sites.json. Slugs are now unique per account only.
+                await conn.execute(text(
+                    "ALTER TABLE services ADD COLUMN IF NOT EXISTS "
+                    "account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE"))
+                await conn.execute(text(
+                    "ALTER TABLE services ADD COLUMN IF NOT EXISTS "
+                    "tmdb_provider_id INTEGER"))
+                await conn.execute(text(
+                    "ALTER TABLE services ADD COLUMN IF NOT EXISTS "
+                    "search_url VARCHAR(500) NOT NULL DEFAULT ''"))
+                await conn.execute(text(
+                    "ALTER TABLE services DROP CONSTRAINT IF EXISTS services_slug_key"))
+                # The old unique=True produced a unique *index*; replace it
+                # with a plain one so slugs can repeat across accounts.
+                await conn.execute(text("DROP INDEX IF EXISTS ix_services_slug"))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_services_slug ON services (slug)"))
+                # Rows that predate ownership go to the oldest account (no-op
+                # when no accounts exist yet — the first registration adopts).
+                await conn.execute(text(
+                    "UPDATE services SET account_id = (SELECT min(id) FROM accounts) "
+                    "WHERE account_id IS NULL"))
+                await conn.execute(text(
+                    "UPDATE profiles SET account_id = (SELECT min(id) FROM accounts) "
+                    "WHERE account_id IS NULL"))
                 # Profiles: the library is shared, watch state is per profile.
                 # Seed one profile, move the legacy global watched flag into
                 # it, then retire the old columns.
@@ -95,23 +122,36 @@ async def _init_db(retries: int = 10) -> None:
                 raise
             await asyncio.sleep(2)
 
-    # sites.json is the source of truth for the site list; sync it into the
-    # services table so titles can keep their FK.
+    # One-time legacy migration: services created when sites.json was the
+    # source of truth are missing provider id / search URL — copy those over
+    # by slug. Custom-site icons switch from slug- to id-based URLs (slugs
+    # are only unique per account now).
     async with SessionLocal() as session:
-        rows = {s.slug: s for s in (await session.execute(select(Service))).scalars()}
-        for site in sites.load_sites():
-            row = rows.get(site["slug"])
-            if row:
-                row.name = site["name"]
-                row.base_domain = site["base_domain"]
-                row.icon_path = site["icon_path"]
-            else:
-                session.add(Service(
-                    name=site["name"],
-                    slug=site["slug"],
-                    base_domain=site["base_domain"],
-                    icon_path=site["icon_path"],
-                ))
+        rows = (await session.execute(select(Service))).scalars().all()
+        legacy = {s["slug"]: s for s in sites.load_legacy_sites()}
+        for row in rows:
+            old = legacy.get(row.slug)
+            if old:
+                if row.tmdb_provider_id is None:
+                    row.tmdb_provider_id = old.get("tmdb_provider_id")
+                if not row.search_url:
+                    row.search_url = old.get("search_url") or ""
+            if row.icon_path.startswith("/icons/"):
+                row.icon_path = f"/icons/{row.id}.svg"
+        # Accounts that registered before sites were per-account own none
+        # (adoption gave everything to the oldest account) — seed them the
+        # defaults so their Sites and Add pages aren't empty.
+        owners = {row.account_id for row in rows}
+        accounts = (await session.execute(select(Account))).scalars().all()
+        for account in accounts:
+            if account.id in owners:
+                continue
+            for s in sites.DEFAULT_SITES:
+                session.add(Service(account_id=account.id, name=s["name"],
+                                    slug=s["slug"], base_domain=s["base_domain"],
+                                    icon_path=s["icon_path"],
+                                    tmdb_provider_id=s["tmdb_provider_id"],
+                                    search_url=s["search_url"]))
         await session.commit()
 
 
@@ -120,12 +160,8 @@ async def _backfill_details() -> None:
     those columns existed."""
     try:
         async with SessionLocal() as session:
-            slugs = {s.id: s.slug for s in (
+            provider_by_service = {s.id: s.tmdb_provider_id for s in (
                 await session.execute(select(Service))).scalars()}
-            site_providers = {s["slug"]: s.get("tmdb_provider_id")
-                              for s in sites.load_sites()}
-            provider_by_service = {sid: site_providers.get(slug)
-                                   for sid, slug in slugs.items()}
             rows = (await session.execute(
                 select(Title).where((Title.genres == "")
                                     | Title.rating.is_(None)
@@ -177,9 +213,7 @@ async def _backfill_deep_links() -> None:
     Wikidata doesn't know keep their search link."""
     try:
         async with SessionLocal() as session:
-            services = {s.id: s.slug for s in (
-                await session.execute(select(Service))).scalars()}
-            site_by_slug = {s["slug"]: s for s in sites.load_sites()}
+            services = (await session.execute(select(Service))).scalars().all()
             sem = asyncio.Semaphore(4)
 
             async def imdb(t: Title) -> str:
@@ -194,23 +228,23 @@ async def _backfill_deep_links() -> None:
                         return ""
 
             upgraded = 0
-            for service_id, slug in services.items():
-                site = site_by_slug.get(slug)
-                if not site or not wikidata.supported(slug):
+            for service in services:
+                if not wikidata.supported(service.slug):
                     continue
                 # A deep_link starting like the search template is a fallback.
-                template = site.get("search_url") or ""
+                template = service.search_url or ""
                 prefix = template.split("{query}")[0] if "{query}" in template else template
                 if not prefix:
                     continue
                 rows = (await session.execute(select(Title).where(
-                    Title.service_id == service_id,
+                    Title.service_id == service.id,
                     Title.deep_link.like(prefix + "%")))).scalars().all()
                 if not rows:
                     continue
                 imdb_ids = await asyncio.gather(*(imdb(t) for t in rows))
                 links = await wikidata.resolve_links(
-                    slug, [(i, t.media_type.value) for i, t in zip(imdb_ids, rows)])
+                    service.slug,
+                    [(i, t.media_type.value) for i, t in zip(imdb_ids, rows)])
                 for i, t in zip(imdb_ids, rows):
                     url = links.get(i)
                     if url:
@@ -218,7 +252,7 @@ async def _backfill_deep_links() -> None:
                         upgraded += 1
                 await session.commit()
                 log.info("Deep-link backfill %s: %d/%d upgraded",
-                         slug, upgraded, len(rows))
+                         service.slug, upgraded, len(rows))
         log.info("Deep-link backfill finished: upgraded %d titles", upgraded)
     except Exception:
         log.exception("Deep-link backfill failed")

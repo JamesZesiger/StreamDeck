@@ -16,13 +16,26 @@ class MediaType(str, enum.Enum):
 
 
 class Service(Base):
+    """A streaming site. Each account has its own set (seeded from
+    sites.DEFAULT_SITES at registration), so sites — and through them the
+    title library — are per account."""
+
     __tablename__ = "services"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL only for rows created before accounts owned sites; adopted by the
+    # oldest account at startup / the first account to register.
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(100))
-    slug: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    # Unique per account (enforced in code; the old global unique is dropped).
+    slug: Mapped[str] = mapped_column(String(50), index=True)
     base_domain: Mapped[str] = mapped_column(String(100))
     icon_path: Mapped[str] = mapped_column(String(200), default="")
+    # TMDB/JustWatch watch-provider id; enables the "Add all" preload.
+    tmdb_provider_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Deep-link template ({query} = title) for titles without an exact URL.
+    search_url: Mapped[str] = mapped_column(String(500), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     titles: Mapped[list["Title"]] = relationship(back_populates="service")
@@ -66,7 +79,7 @@ class Title(Base):
 
 class Account(Base):
     """A login (username + password, no email). Each account has its own
-    profiles; the title library stays shared across accounts."""
+    profiles, sites, and title library."""
 
     __tablename__ = "accounts"
 
@@ -80,7 +93,8 @@ class Account(Base):
 
 
 class Profile(Base):
-    """A person using the app. The library is shared; watch state is not."""
+    """A person using an account. The account's library is shared between
+    its profiles; watch state is not."""
 
     __tablename__ = "profiles"
 

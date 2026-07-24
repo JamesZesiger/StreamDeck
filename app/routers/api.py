@@ -9,7 +9,6 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import auth
 import prefs
 import sites
 import tmdb
@@ -33,13 +32,11 @@ async def resolve_url(
     query: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
-    await active_profile(request, session)  # sign-in required
-    slug = sites.detect_service_slug(url)
-    service = None
-    if slug:
-        service = (await session.execute(
-            select(Service).where(Service.slug == slug)
-        )).scalar_one_or_none()
+    profile = await active_profile(request, session)
+    services = (await session.execute(
+        select(Service).where(Service.account_id == profile.account_id)
+    )).scalars().all()
+    service = sites.detect_service(url, services)
     results = await tmdb.search_multi(query) if query.strip() else []
     return templates.TemplateResponse(request, "partials/search_results.html", {
         "results": results,
@@ -57,12 +54,11 @@ async def create_title(
     media_type: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
-    await active_profile(request, session)  # sign-in required
+    profile = await active_profile(request, session)
     service = await session.get(Service, service_id)
-    if not service:
+    if not service or service.account_id != profile.account_id:
         raise HTTPException(400, "Unknown service")
     details = await tmdb.get_details(tmdb_id, media_type)
-    site = sites.get_site(service.slug) or {}
     title = Title(
         service_id=service.id,
         tmdb_id=details["tmdb_id"],
@@ -81,7 +77,7 @@ async def create_title(
         certification=details["certification"],
         imdb_id=details["imdb_id"],
         regions=tmdb.regions_for_provider(
-            details["provider_regions"], site.get("tmdb_provider_id")),
+            details["provider_regions"], service.tmdb_provider_id),
         deep_link=url,
     )
     session.add(title)
@@ -92,12 +88,15 @@ async def create_title(
 @router.patch("/titles/{title_id}/watched")
 async def toggle_watched(request: Request, title_id: int,
                          session: AsyncSession = Depends(get_session)):
-    title = await session.get(Title, title_id)
+    profile = await active_profile(request, session)
+    title = (await session.execute(
+        select(Title).join(Service).where(
+            Title.id == title_id, Service.account_id == profile.account_id)
+    )).scalar_one_or_none()
     if not title:
         raise HTTPException(404)
     # Watched state applies to the combined title, across all its providers,
     # and belongs to the active profile only.
-    profile = await active_profile(request, session)
     watch = (await session.execute(
         select(ProfileWatch).where(ProfileWatch.profile_id == profile.id,
                                    ProfileWatch.tmdb_id == title.tmdb_id,
@@ -117,10 +116,13 @@ async def toggle_watched(request: Request, title_id: int,
 @router.patch("/titles/{title_id}/list")
 async def toggle_list(request: Request, title_id: int,
                       session: AsyncSession = Depends(get_session)):
-    title = await session.get(Title, title_id)
+    profile = await active_profile(request, session)
+    title = (await session.execute(
+        select(Title).join(Service).where(
+            Title.id == title_id, Service.account_id == profile.account_id)
+    )).scalar_one_or_none()
     if not title:
         raise HTTPException(404)
-    profile = await active_profile(request, session)
     item = (await session.execute(
         select(ProfileListItem).where(ProfileListItem.profile_id == profile.id,
                                       ProfileListItem.tmdb_id == title.tmdb_id,
@@ -183,7 +185,9 @@ async def toggle_allowed_service(request: Request, slug: str = Form(...),
                                  session: AsyncSession = Depends(get_session)):
     profile = await _unlocked_profile(request, session)
     all_slugs = set((await session.execute(
-        select(Service.slug).where(Service.enabled))).scalars())
+        select(Service.slug).where(Service.enabled,
+                                   Service.account_id == profile.account_id)
+    )).scalars())
     if slug not in all_slugs:
         raise HTTPException(404, "Unknown service")
     # "" means every service is allowed; expand it before toggling one off.
@@ -280,12 +284,18 @@ async def delete_profile(request: Request, profile_id: int,
 @router.delete("/titles/{title_id}")
 async def delete_title(request: Request, title_id: int,
                        session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)  # removes from the shared library
-    title = await session.get(Title, title_id)
+    profile = await _unlocked_profile(request, session)  # removes from the account's library
+    account_services = select(Service.id).where(
+        Service.account_id == profile.account_id)
+    title = (await session.execute(
+        select(Title).where(Title.id == title_id,
+                            Title.service_id.in_(account_services))
+    )).scalar_one_or_none()
     if title:
-        # Remove the combined title: every provider's row.
+        # Remove the combined title: every provider's row in this account.
         await session.execute(delete(Title).where(
-            Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type))
+            Title.tmdb_id == title.tmdb_id, Title.media_type == title.media_type,
+            Title.service_id.in_(account_services)))
         await session.commit()
     return Response(headers={"HX-Redirect": "/"})
 
@@ -297,6 +307,13 @@ def _msg(text: str, tone: str = "amber") -> Response:
     )
 
 
+async def _account_service(slug: str, profile, session: AsyncSession) -> Service | None:
+    return (await session.execute(
+        select(Service).where(Service.slug == slug,
+                              Service.account_id == profile.account_id)
+    )).scalar_one_or_none()
+
+
 @router.post("/sites")
 async def create_site(
     request: Request,
@@ -305,20 +322,34 @@ async def create_site(
     tmdb_provider_id: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
-    auth.require_admin(request)
-    provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
+    profile = await _unlocked_profile(request, session)
+    name = name.strip()
+    slug = sites.slugify(name)
+    if not slug:
+        return _msg("Site name must contain letters or numbers.")
+    if await _account_service(slug, profile, session):
+        return _msg(f"A site named “{name}” already exists.")
     try:
-        site = sites.add_site(name, base_domain, tmdb_provider_id=provider_id)
+        domain = sites.clean_domain(base_domain)
     except ValueError as exc:
         return _msg(str(exc))
-    session.add(Service(
-        name=site["name"],
-        slug=site["slug"],
-        base_domain=site["base_domain"],
-        icon_path=site["icon_path"],
-    ))
+    provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
+    default = next((d for d in sites.DEFAULT_SITES if d["slug"] == slug), None)
+    service = Service(
+        account_id=profile.account_id,
+        name=name,
+        slug=slug,
+        base_domain=domain,
+        tmdb_provider_id=provider_id,
+        search_url=f"https://www.{domain}",
+    )
+    session.add(service)
+    await session.flush()
+    # Known sites reuse their shipped icon; customs get a letter badge.
+    service.icon_path = (default["icon_path"] if default
+                         else f"/icons/{service.id}.svg")
     await session.commit()
-    return Response(headers={"HX-Redirect": "/admin"})
+    return Response(headers={"HX-Redirect": "/sites"})
 
 
 @router.post("/sites/{slug}/edit")
@@ -331,37 +362,36 @@ async def edit_site(
     search_url: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
-    auth.require_admin(request)
-    provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
+    profile = await _unlocked_profile(request, session)
+    service = await _account_service(slug, profile, session)
+    if not service:
+        return _msg("Unknown site.")
     try:
-        site = sites.update_site(slug, name, base_domain,
-                                 provider_id, search_url)
+        service.base_domain = sites.clean_domain(base_domain)
     except ValueError as exc:
         return _msg(str(exc))
-    service = (await session.execute(
-        select(Service).where(Service.slug == slug)
-    )).scalar_one_or_none()
-    if service:
-        service.name = site["name"]
-        service.base_domain = site["base_domain"]
-        await session.commit()
-    saved_msg = quote(f"Saved {site['name']}.")
-    return Response(headers={"HX-Redirect": f"/admin?msg={saved_msg}"})
+    if name.strip():
+        service.name = name.strip()
+    service.tmdb_provider_id = (int(tmdb_provider_id)
+                                if tmdb_provider_id.strip().isdigit() else None)
+    if search_url.strip():
+        service.search_url = search_url.strip()
+    await session.commit()
+    saved_msg = quote(f"Saved {service.name}.")
+    return Response(headers={"HX-Redirect": f"/sites?msg={saved_msg}"})
 
 
 @router.delete("/sites/{slug}/titles")
 async def remove_all_titles(request: Request, slug: str,
                             session: AsyncSession = Depends(get_session)):
-    auth.require_admin(request)
-    service = (await session.execute(
-        select(Service).where(Service.slug == slug)
-    )).scalar_one_or_none()
+    profile = await _unlocked_profile(request, session)
+    service = await _account_service(slug, profile, session)
     if not service:
         raise HTTPException(404, "Unknown site")
     result = await session.execute(delete(Title).where(Title.service_id == service.id))
     await session.commit()
     msg = f"Removed {result.rowcount} title{'' if result.rowcount == 1 else 's'} from {service.name}."
-    return Response(headers={"HX-Redirect": f"/admin?msg={quote(msg)}"})
+    return Response(headers={"HX-Redirect": f"/sites?msg={quote(msg)}"})
 
 
 # "Add all" pulls a site's TMDB/JustWatch catalog. The button opens an inline
@@ -377,12 +407,14 @@ PRELOAD_MIN_VOTES = 0    # 0 = no audience floor, include the long tail
 PRELOAD_BATCH = 100      # titles fetched + committed per batch (bounds memory /
                          # persists partial progress if the task dies midway)
 
-# Slug -> running import task, so a second click doesn't start a duplicate run.
-_preload_tasks: dict[str, asyncio.Task] = {}
+# Service id -> running import task, so a second click doesn't start a
+# duplicate run (slugs are only unique per account).
+_preload_tasks: dict[int, asyncio.Task] = {}
 
 
 async def _run_preload(slug: str, service_id: int, provider_id: int,
-                       site: dict, per_type: int | None) -> None:
+                       search_url: str, base_domain: str,
+                       per_type: int | None) -> None:
     """Background worker: walk the provider's catalog (all of it, or the
     per_type most popular of each type), fetching details and committing in
     batches so progress survives a crash or restart."""
@@ -437,7 +469,8 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                             regions=tmdb.regions_for_provider(
                                 d["provider_regions"], provider_id),
                             deep_link=(links.get(d["imdb_id"])
-                                       or sites.title_search_link(site, d["title"])),
+                                       or sites.title_search_link(
+                                           search_url, base_domain, d["title"])),
                         ))
                         added += 1
                     await session.commit()
@@ -471,31 +504,26 @@ def _preload_running_msg(slug: str) -> Response:
 @router.post("/sites/{slug}/preload")
 async def preload_site(request: Request, slug: str, count: str = Form("0"),
                        session: AsyncSession = Depends(get_session)):
-    auth.require_admin(request)
-    site = sites.get_site(slug)
-    if not site:
+    profile = await _unlocked_profile(request, session)
+    service = await _account_service(slug, profile, session)
+    if not service:
         raise HTTPException(404, "Unknown site")
-    provider_id = site.get("tmdb_provider_id")
-    if not provider_id:
+    if not service.tmdb_provider_id:
         return _msg("No TMDB provider id configured for this site.")
     # How many titles of each type to pull. 0/blank = full catalog.
     count = count.strip()
     if count and not count.isdigit():
         return _msg("Enter a number of titles to pull (0 = all).")
     per_type = int(count) if count else 0
-    service = (await session.execute(
-        select(Service).where(Service.slug == slug)
-    )).scalar_one_or_none()
-    if not service:
-        return _msg("Site not synced to the database yet — restart the app.")
 
-    running = _preload_tasks.get(slug)
+    running = _preload_tasks.get(service.id)
     if running and not running.done():
         return _preload_running_msg(slug)
 
     task = asyncio.create_task(
-        _run_preload(slug, service.id, provider_id, site, per_type or None))
-    _preload_tasks[slug] = task
+        _run_preload(slug, service.id, service.tmdb_provider_id,
+                     service.search_url, service.base_domain, per_type or None))
+    _preload_tasks[service.id] = task
     return _preload_running_msg(slug)
 
 
@@ -516,13 +544,8 @@ async def _refresh_metadata() -> None:
 
     try:
         async with SessionLocal() as session:
-            provider_by_service = {}
-            slugs = {s.id: s.slug for s in (
+            provider_by_service = {s.id: s.tmdb_provider_id for s in (
                 await session.execute(select(Service))).scalars()}
-            site_providers = {s["slug"]: s.get("tmdb_provider_id")
-                              for s in sites.load_sites()}
-            for service_id, slug in slugs.items():
-                provider_by_service[service_id] = site_providers.get(slug)
             rows = (await session.execute(select(Title))).scalars().all()
             by_key: dict[tuple, list[Title]] = {}
             for t in rows:
@@ -591,8 +614,11 @@ async def change_language(request: Request, lang: str = Form(...),
 @router.post("/sites/{slug}/preload/stop")
 async def stop_preload(request: Request, slug: str,
                        session: AsyncSession = Depends(get_session)):
-    auth.require_admin(request)
-    task = _preload_tasks.get(slug)
+    profile = await _unlocked_profile(request, session)
+    service = await _account_service(slug, profile, session)
+    if not service:
+        raise HTTPException(404, "Unknown site")
+    task = _preload_tasks.get(service.id)
     if not task or task.done():
         return _msg("No import is running for this site.")
     task.cancel()
