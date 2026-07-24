@@ -24,6 +24,8 @@
       <p class="text-sm text-zinc-400 mb-4">
         {{ t.release_year or '' }}{% if t.runtime_minutes %} · {{ t.runtime_minutes }} min{% endif %}
         {% if watched_at %} · watched {{ watched_at.strftime('%Y-%m-%d') }}{% endif %}
+        {% if t.imdb_id %} · <a href="https://www.imdb.com/title/{{ t.imdb_id }}/" target="_blank" rel="noopener"
+           class="text-amber-400 hover:text-amber-300 hover:underline">IMDb ↗</a>{% endif %}
       </p>
       <p class="text-zinc-300 leading-relaxed mb-6 max-w-2xl">{{ t.overview }}</p>
 

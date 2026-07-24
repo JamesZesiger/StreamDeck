@@ -52,6 +52,9 @@ class Title(Base):
     # US certification ("PG-13", "TV-MA", …). NULL = never fetched,
     # "" = fetched but TMDB has none for this title.
     certification: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # IMDb id ("tt0133093"), from TMDB's external_ids. NULL = never fetched,
+    # "" = fetched but TMDB has none for this title.
+    imdb_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Comma-separated ISO country codes where this row's service streams the
     # title (TMDB/JustWatch watch-provider data). NULL = never fetched.
     regions: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -76,6 +76,7 @@ async def create_title(
         vote_count=details["vote_count"],
         popularity=details["popularity"],
         certification=details["certification"],
+        imdb_id=details["imdb_id"],
         regions=tmdb.regions_for_provider(
             details["provider_regions"], site.get("tmdb_provider_id")),
         deep_link=url,
@@ -426,6 +427,7 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                             vote_count=d["vote_count"],
                             popularity=d["popularity"],
                             certification=d["certification"],
+                            imdb_id=d["imdb_id"],
                             regions=tmdb.regions_for_provider(
                                 d["provider_regions"], provider_id),
                             deep_link=(links.get(d["imdb_id"])
@@ -536,6 +538,7 @@ async def _refresh_metadata() -> None:
                         t.vote_count = d["vote_count"]
                         t.popularity = d["popularity"]
                         t.certification = d["certification"]
+                        t.imdb_id = d["imdb_id"]
                         t.regions = tmdb.regions_for_provider(
                             d["provider_regions"],
                             provider_by_service.get(t.service_id))

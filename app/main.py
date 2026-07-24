@@ -47,6 +47,9 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
                     "regions TEXT"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "imdb_id VARCHAR(20)"))
                 # hide_mature is retired: the age rating cap replaces it.
                 await conn.execute(text(
                     "ALTER TABLE profiles DROP COLUMN IF EXISTS hide_mature"))
@@ -119,7 +122,8 @@ async def _backfill_details() -> None:
                 select(Title).where((Title.genres == "")
                                     | Title.rating.is_(None)
                                     | Title.certification.is_(None)
-                                    | Title.regions.is_(None))
+                                    | Title.regions.is_(None)
+                                    | Title.imdb_id.is_(None))
             )).scalars().all()
             if not rows:
                 return
@@ -148,6 +152,7 @@ async def _backfill_details() -> None:
                         t.vote_count = details["vote_count"]
                         t.popularity = details["popularity"]
                         t.certification = details["certification"]
+                        t.imdb_id = details["imdb_id"]
                         t.regions = tmdb.regions_for_provider(
                             details["provider_regions"],
                             provider_by_service.get(t.service_id))
@@ -169,10 +174,14 @@ async def _backfill_deep_links() -> None:
             site_by_slug = {s["slug"]: s for s in sites.load_sites()}
             sem = asyncio.Semaphore(4)
 
-            async def imdb(tmdb_id: int, media_type: str) -> str:
+            async def imdb(t: Title) -> str:
+                # Stored on the row since the details backfill; only titles it
+                # missed (NULL) still need the external_ids call.
+                if t.imdb_id is not None:
+                    return t.imdb_id
                 async with sem:
                     try:
-                        return await tmdb.get_imdb_id(tmdb_id, media_type)
+                        return await tmdb.get_imdb_id(t.tmdb_id, t.media_type.value)
                     except Exception:
                         return ""
 
@@ -191,8 +200,7 @@ async def _backfill_deep_links() -> None:
                     Title.deep_link.like(prefix + "%")))).scalars().all()
                 if not rows:
                     continue
-                imdb_ids = await asyncio.gather(
-                    *(imdb(t.tmdb_id, t.media_type.value) for t in rows))
+                imdb_ids = await asyncio.gather(*(imdb(t) for t in rows))
                 links = await wikidata.resolve_links(
                     slug, [(i, t.media_type.value) for i, t in zip(imdb_ids, rows)])
                 for i, t in zip(imdb_ids, rows):
