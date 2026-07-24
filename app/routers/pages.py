@@ -106,18 +106,30 @@ async def library(
     groups = []
     for key, rows in by_key.items():
         rows = sorted(rows, key=lambda r: r.service.name.lower())
-        # A TMDB rating backed by a handful of votes is noise (a 10.0 with two
-        # votes would top every list), so it only counts with >= 10 votes.
-        rated = [r for r in rows if r.rating and (r.vote_count or 0) >= 10]
+        # Provider rows hold the same TMDB title fetched at different times;
+        # the one with the most votes is the freshest stats snapshot.
+        stats = max(rows, key=lambda r: r.vote_count or 0)
         groups.append({
             "primary": rows[0],
             "services": [r.service for r in rows],
             "watched": key in watched_keys,
             "in_list": key in list_keys,
             "added": max(r.added_at for r in rows),
-            "rating": max((r.rating for r in rated), default=0),
-            "popularity": max((r.popularity or 0 for r in rows), default=0),
+            "raw_rating": stats.rating or 0,
+            "votes": stats.vote_count or 0,
         })
+    # "Highest rated" uses a Bayesian (IMDb-style) weighted rating, not the
+    # raw TMDB average: WR = v/(v+m)*R + m/(v+m)*C. A 9.4 backed by a few
+    # hundred votes shouldn't outrank an 8.9 backed by tens of thousands, so
+    # each average is pulled toward the library mean C until enough votes
+    # (m) back it up. Unrated titles stay at 0 and sink to the bottom.
+    prior_votes = 500  # m: votes needed before R outweighs the prior C
+    rated = [g for g in groups if g["raw_rating"] and g["votes"]]
+    mean = sum(g["raw_rating"] for g in rated) / len(rated) if rated else 0
+    for g in groups:
+        v, r = g["votes"], g["raw_rating"]
+        g["rating"] = ((v * r + prior_votes * mean) / (v + prior_votes)
+                       if v and r else 0)
     if watched in ("true", "false"):
         groups = [g for g in groups if g["watched"] == (watched == "true")]
     if list_only == "true":
@@ -130,13 +142,17 @@ async def library(
         groups.sort(key=lambda g: g["added"], reverse=True)
         groups.sort(key=lambda g: g["primary"].title.lower())
     elif sort == "popularity":
+        # "Most popular" = lifetime vote count. TMDB's popularity score is a
+        # trending-this-week metric frozen at import time, so it ranks
+        # whatever was hot the day a title was fetched; vote count is
+        # cumulative, stable, and comparable across import dates.
         groups.sort(key=lambda g: g["rating"], reverse=True)
-        groups.sort(key=lambda g: g["popularity"], reverse=True)
+        groups.sort(key=lambda g: g["votes"], reverse=True)
     elif sort == "year":
         groups.sort(key=lambda g: g["rating"], reverse=True)
         groups.sort(key=lambda g: g["primary"].release_year or 0, reverse=True)
-    else:  # default "rating": highest rated first, popularity breaks ties
-        groups.sort(key=lambda g: g["popularity"], reverse=True)
+    else:  # default "rating": weighted rating first, vote count breaks ties
+        groups.sort(key=lambda g: g["votes"], reverse=True)
         groups.sort(key=lambda g: g["rating"], reverse=True)
 
     # htmx search requests swap only the grid
