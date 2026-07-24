@@ -6,6 +6,7 @@ from fastapi import Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import auth
 import prefs
 from models import Profile, Title
 
@@ -68,15 +69,25 @@ def settings_locked(profile: Profile, request: Request) -> bool:
 
 
 async def active_profile(request: Request, session: AsyncSession) -> Profile:
-    """The profile from the cookie, falling back to the first profile.
-    _init_db guarantees at least one profile exists."""
+    """The signed-in account's profile from the cookie, falling back to the
+    account's first profile. This is also the sign-in gate: without a valid
+    session it raises a redirect to /login, so every endpoint that resolves
+    a profile requires an account."""
+    account = await auth.require_account(request, session)
     pid = request.cookies.get(COOKIE, "")
     if pid.isdigit():
         profile = await session.get(Profile, int(pid))
-        if profile:
+        if profile and profile.account_id == account.id:
             return profile
-    return (await session.execute(
-        select(Profile).order_by(Profile.id))).scalars().first()
+    profile = (await session.execute(
+        select(Profile).where(Profile.account_id == account.id)
+        .order_by(Profile.id))).scalars().first()
+    if not profile:
+        # Registration seeds one profile per account; recover if it's gone.
+        profile = Profile(name=account.username, account_id=account.id)
+        session.add(profile)
+        await session.commit()
+    return profile
 
 
 def set_profile_cookie(response: Response, profile_id: int) -> None:

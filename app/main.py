@@ -11,7 +11,7 @@ import tmdb
 import wikidata
 from db import SessionLocal, engine
 from models import Base, Service, Title
-from routers import api, pages
+from routers import accounts, api, pages
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,14 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
                     "kid_mode BOOLEAN NOT NULL DEFAULT FALSE"))
+                # Accounts: profiles belong to an account. NULL account_id
+                # rows predate accounts; the first registration adopts them.
+                await conn.execute(text(
+                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
+                    "account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE"))
+                # Profile names are now unique per account, not globally.
+                await conn.execute(text(
+                    "ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_name_key"))
                 # Profiles: the library is shared, watch state is per profile.
                 # Seed one profile, move the legacy global watched flag into
                 # it, then retire the old columns.
@@ -233,6 +241,7 @@ app = FastAPI(title="StreamDeck", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(pages.router)
 app.include_router(api.router)
+app.include_router(accounts.router)
 
 
 @app.get("/healthz")

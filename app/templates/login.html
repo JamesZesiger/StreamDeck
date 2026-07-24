@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Sign in — StreamDeck{% endblock %}
+{% block nav %}
+<nav class="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur border-b border-zinc-800">
+  <div class="max-w-7xl mx-auto px-4 py-3">
+    <span class="text-xl font-bold tracking-tight">Stream<span class="text-red-500">Deck</span></span>
+  </div>
+</nav>
+{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-16 bg-zinc-900 ring-1 ring-zinc-800 rounded-2xl p-6">
+  <div class="flex rounded-lg bg-zinc-950 p-1 mb-5 text-sm font-semibold" id="auth-tabs">
+    <button type="button" data-tab="login" onclick="showAuth('login')"
+            class="flex-1 rounded-md py-1.5 bg-zinc-800">Sign in</button>
+    <button type="button" data-tab="register" onclick="showAuth('register')"
+            class="flex-1 rounded-md py-1.5 text-zinc-400">Create account</button>
+  </div>
+  <form id="auth-login" hx-post="/api/auth/login" hx-target="#auth-msg" hx-swap="innerHTML"
+        class="space-y-3">
+    <input name="username" required maxlength="32" placeholder="Username"
+           autocomplete="username" autofocus
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    <input name="password" type="password" required placeholder="Password"
+           autocomplete="current-password"
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    <button class="w-full rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 font-semibold">Sign in</button>
+  </form>
+  <form id="auth-register" hx-post="/api/auth/register" hx-target="#auth-msg" hx-swap="innerHTML"
+        class="space-y-3 hidden">
+    <input name="username" required maxlength="32" placeholder="Username"
+           autocomplete="username"
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    <input name="password" type="password" required minlength="6" placeholder="Password (6+ characters)"
+           autocomplete="new-password"
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    <button class="w-full rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 font-semibold">Create account</button>
+    <p class="text-xs text-zinc-500">Just a username and password — no email needed.</p>
+  </form>
+  <div id="auth-msg" class="pt-3 empty:hidden"></div>
+</div>
+<script>
+  function showAuth(which) {
+    document.getElementById('auth-login').classList.toggle('hidden', which !== 'login');
+    document.getElementById('auth-register').classList.toggle('hidden', which !== 'register');
+    document.getElementById('auth-msg').innerHTML = '';
+    document.querySelectorAll('#auth-tabs button').forEach((b) => {
+      const on = b.dataset.tab === which;
+      b.classList.toggle('bg-zinc-800', on);
+      b.classList.toggle('text-zinc-400', !on);
+    });
+    document.querySelector(`#auth-${which} input[name="username"]`).focus();
+  }
+</script>
+{% endblock %}

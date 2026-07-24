@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Admin — StreamDeck{% endblock %}
+{% block nav %}
+<nav class="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur border-b border-zinc-800">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <a href="/" class="text-xl font-bold tracking-tight">Stream<span class="text-red-500">Deck</span></a>
+    <span class="text-sm text-zinc-500">Admin</span>
+  </div>
+</nav>
+{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-16 bg-zinc-900 ring-1 ring-zinc-800 rounded-2xl p-6 space-y-4">
+  {% if mode == 'setup' %}
+  <h1 class="font-semibold text-lg">Set up admin access</h1>
+  <p class="text-sm text-zinc-400">No admin credentials exist yet. Choose the username and password
+    that will guard this panel — they're separate from user accounts.</p>
+  {% else %}
+  <h1 class="font-semibold text-lg">Admin sign-in</h1>
+  <p class="text-sm text-zinc-400">Site management requires the admin credentials.</p>
+  {% endif %}
+  <form hx-post="/api/admin/{{ 'setup' if mode == 'setup' else 'login' }}"
+        hx-target="#admin-msg" hx-swap="innerHTML" class="space-y-3">
+    <input name="username" required maxlength="32" placeholder="Admin username"
+           autocomplete="username" autofocus
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    <input name="password" type="password" required {% if mode == 'setup' %}minlength="6"{% endif %}
+           placeholder="{{ 'Password (6+ characters)' if mode == 'setup' else 'Password' }}"
+           autocomplete="{{ 'new-password' if mode == 'setup' else 'current-password' }}"
+           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
+    <button class="w-full rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 font-semibold">
+      {{ 'Create admin credentials' if mode == 'setup' else 'Sign in' }}</button>
+  </form>
+  <div id="admin-msg" class="empty:hidden"></div>
+  <a href="/" class="inline-block text-sm text-zinc-500 hover:text-zinc-300">← Back to library</a>
+</div>
+{% endblock %}

@@ -64,13 +64,34 @@ class Title(Base):
     service: Mapped[Service] = relationship(back_populates="titles")
 
 
+class Account(Base):
+    """A login (username + password, no email). Each account has its own
+    profiles; the title library stays shared across accounts."""
+
+    __tablename__ = "accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    # "salt$pbkdf2-sha256-hex" (see auth.hash_password).
+    password_hash: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    profiles: Mapped[list["Profile"]] = relationship(back_populates="account")
+
+
 class Profile(Base):
     """A person using the app. The library is shared; watch state is not."""
 
     __tablename__ = "profiles"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True)
+    # Names are unique per account (enforced in code, not the schema —
+    # pre-account rows had a global unique constraint, since dropped).
+    name: Mapped[str] = mapped_column(String(50))
+    # NULL only for rows created before accounts existed; the first account
+    # to register adopts them.
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True, index=True)
     # Highest allowed age level (see profiles.RATING_CAPS); NULL = no cap.
     # With a cap set, titles with no known certification are hidden too.
     max_rating_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -81,6 +102,8 @@ class Profile(Base):
     kid_mode: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    account: Mapped[Account | None] = relationship(back_populates="profiles")
 
 
 class ProfileWatch(Base):

@@ -7,6 +7,7 @@ have no profile context) and the parent PIN hash for kid-mode locks.
 
 import hashlib
 import json
+import secrets
 from pathlib import Path
 
 from config import settings
@@ -101,6 +102,45 @@ def set_region(region: str) -> None:
     global _region
     _save("region", region)
     _region = region
+
+
+_session_secret: str | None = None
+
+
+def get_session_secret() -> str:
+    """HMAC key for session cookies, generated once and persisted so
+    sessions survive restarts."""
+    global _session_secret
+    if _session_secret is None:
+        try:
+            _session_secret = json.loads(_path().read_text()).get(
+                "session_secret", "")
+        except (OSError, ValueError):
+            _session_secret = ""
+        if not _session_secret:
+            _session_secret = secrets.token_hex(32)
+            _save("session_secret", _session_secret)
+    return _session_secret
+
+
+def get_admin_user() -> str:
+    try:
+        return json.loads(_path().read_text()).get("admin_user", "")
+    except (OSError, ValueError):
+        return ""
+
+
+def get_admin_hash() -> str:
+    try:
+        return json.loads(_path().read_text()).get("admin_hash", "")
+    except (OSError, ValueError):
+        return ""
+
+
+def set_admin(username: str, password_hash: str) -> None:
+    """The /admin area's credentials — separate from user accounts."""
+    _save("admin_user", username)
+    _save("admin_hash", password_hash)
 
 
 def hash_pin(pin: str) -> str:

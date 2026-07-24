@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import auth
 import prefs
 import sites
 import tmdb
@@ -32,6 +33,7 @@ async def resolve_url(
     query: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
+    await active_profile(request, session)  # sign-in required
     slug = sites.detect_service_slug(url)
     service = None
     if slug:
@@ -55,6 +57,7 @@ async def create_title(
     media_type: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
+    await active_profile(request, session)  # sign-in required
     service = await session.get(Service, service_id)
     if not service:
         raise HTTPException(400, "Unknown service")
@@ -223,16 +226,17 @@ async def change_pin(request: Request, pin: str = Form(...),
 @router.post("/profiles")
 async def create_profile(request: Request, name: str = Form(...),
                          session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)
+    active = await _unlocked_profile(request, session)
     name = name.strip()[:50]
     if not name:
         return _msg("Profile name required.")
     exists = (await session.execute(
-        select(Profile).where(func.lower(Profile.name) == name.lower())
+        select(Profile).where(func.lower(Profile.name) == name.lower(),
+                              Profile.account_id == active.account_id)
     )).scalar_one_or_none()
     if exists:
         return _msg("A profile with that name already exists.")
-    profile = Profile(name=name)
+    profile = Profile(name=name, account_id=active.account_id)
     session.add(profile)
     await session.commit()
     response = Response(headers={"HX-Refresh": "true"})
@@ -243,8 +247,9 @@ async def create_profile(request: Request, name: str = Form(...),
 @router.post("/profiles/{profile_id}/activate")
 async def activate_profile(request: Request, profile_id: int,
                            session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)
-    if not await session.get(Profile, profile_id):
+    active = await _unlocked_profile(request, session)
+    target = await session.get(Profile, profile_id)
+    if not target or target.account_id != active.account_id:
         raise HTTPException(404, "Unknown profile")
     response = Response(headers={"HX-Refresh": "true"})
     set_profile_cookie(response, profile_id)
@@ -254,9 +259,10 @@ async def activate_profile(request: Request, profile_id: int,
 @router.delete("/profiles/{profile_id}")
 async def delete_profile(request: Request, profile_id: int,
                          session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)
+    active = await _unlocked_profile(request, session)
     profiles = (await session.execute(
-        select(Profile).order_by(Profile.id))).scalars().all()
+        select(Profile).where(Profile.account_id == active.account_id)
+        .order_by(Profile.id))).scalars().all()
     if len(profiles) <= 1:
         return _msg("Can't delete the last profile.")
     profile = next((p for p in profiles if p.id == profile_id), None)
@@ -299,7 +305,7 @@ async def create_site(
     tmdb_provider_id: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
-    await _unlocked_profile(request, session)
+    auth.require_admin(request)
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
         site = sites.add_site(name, base_domain, tmdb_provider_id=provider_id)
@@ -312,7 +318,7 @@ async def create_site(
         icon_path=site["icon_path"],
     ))
     await session.commit()
-    return Response(headers={"HX-Redirect": "/sites"})
+    return Response(headers={"HX-Redirect": "/admin"})
 
 
 @router.post("/sites/{slug}/edit")
@@ -325,7 +331,7 @@ async def edit_site(
     search_url: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
-    await _unlocked_profile(request, session)
+    auth.require_admin(request)
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
         site = sites.update_site(slug, name, base_domain,
@@ -340,13 +346,13 @@ async def edit_site(
         service.base_domain = site["base_domain"]
         await session.commit()
     saved_msg = quote(f"Saved {site['name']}.")
-    return Response(headers={"HX-Redirect": f"/sites?msg={saved_msg}"})
+    return Response(headers={"HX-Redirect": f"/admin?msg={saved_msg}"})
 
 
 @router.delete("/sites/{slug}/titles")
 async def remove_all_titles(request: Request, slug: str,
                             session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)
+    auth.require_admin(request)
     service = (await session.execute(
         select(Service).where(Service.slug == slug)
     )).scalar_one_or_none()
@@ -355,7 +361,7 @@ async def remove_all_titles(request: Request, slug: str,
     result = await session.execute(delete(Title).where(Title.service_id == service.id))
     await session.commit()
     msg = f"Removed {result.rowcount} title{'' if result.rowcount == 1 else 's'} from {service.name}."
-    return Response(headers={"HX-Redirect": f"/sites?msg={quote(msg)}"})
+    return Response(headers={"HX-Redirect": f"/admin?msg={quote(msg)}"})
 
 
 # "Add all" pulls a site's TMDB/JustWatch catalog. The button opens an inline
@@ -465,7 +471,7 @@ def _preload_running_msg(slug: str) -> Response:
 @router.post("/sites/{slug}/preload")
 async def preload_site(request: Request, slug: str, count: str = Form("0"),
                        session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)
+    auth.require_admin(request)
     site = sites.get_site(slug)
     if not site:
         raise HTTPException(404, "Unknown site")
@@ -585,7 +591,7 @@ async def change_language(request: Request, lang: str = Form(...),
 @router.post("/sites/{slug}/preload/stop")
 async def stop_preload(request: Request, slug: str,
                        session: AsyncSession = Depends(get_session)):
-    await _unlocked_profile(request, session)
+    auth.require_admin(request)
     task = _preload_tasks.get(slug)
     if not task or task.done():
         return _msg("No import is running for this site.")

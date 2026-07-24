@@ -2,11 +2,13 @@ import asyncio
 import random
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import auth
 import prefs
 import sites
 import tmdb
@@ -188,11 +190,19 @@ async def library(
     })
 
 
+@router.get("/login")
+async def login_page(request: Request, session: AsyncSession = Depends(get_session)):
+    if await auth.current_account(request, session):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(request, "login.html", {})
+
+
 @router.get("/profiles/menu")
 async def profiles_menu(request: Request, session: AsyncSession = Depends(get_session)):
     profile = await active_profile(request, session)
     profiles = (await session.execute(
-        select(Profile).order_by(Profile.id))).scalars().all()
+        select(Profile).where(Profile.account_id == profile.account_id)
+        .order_by(Profile.id))).scalars().all()
     return templates.TemplateResponse(request, "partials/profile_menu.html", {
         "profiles": profiles,
         "active_profile": profile,
@@ -229,15 +239,23 @@ async def add_page(request: Request, session: AsyncSession = Depends(get_session
 
 
 @router.get("/sites")
-async def sites_page(request: Request, msg: str | None = None, add: str | None = None,
+async def sites_page():
+    """Site management moved behind the admin panel."""
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.get("/admin")
+async def admin_page(request: Request, msg: str | None = None, add: str | None = None,
                      session: AsyncSession = Depends(get_session)):
-    profile = await active_profile(request, session)
-    if settings_locked(profile, request):
-        # Site management stays behind the parent PIN while a kid-mode
-        # profile is active.
-        return templates.TemplateResponse(request, "pin_gate.html", {
-            "active_profile": profile,
-        })
+    """Admin panel (site management). Its credentials are separate from user
+    accounts: unclaimed on first visit (setup form), then a login form until
+    the short-lived admin cookie is present."""
+    if not prefs.get_admin_hash():
+        return templates.TemplateResponse(request, "admin_auth.html",
+                                          {"mode": "setup"})
+    if not auth.admin_authed(request):
+        return templates.TemplateResponse(request, "admin_auth.html",
+                                          {"mode": "login"})
     title_counts = dict((await session.execute(
         select(Service.slug, func.count(Title.id))
         .outerjoin(Title).group_by(Service.slug)
@@ -251,9 +269,8 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         "tmdb_provider_id": s.get("tmdb_provider_id"),
         "search_url": s.get("search_url", ""),
     } for s in sites.load_sites()]
-    return templates.TemplateResponse(request, "sites.html", {
+    return templates.TemplateResponse(request, "admin.html", {
         "sites": site_rows, "msg": msg, "show_add": bool(add),
-        "active_profile": await active_profile(request, session),
     })
 
 
