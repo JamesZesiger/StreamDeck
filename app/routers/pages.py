@@ -1,5 +1,7 @@
 import asyncio
 import random
+import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.templating import Jinja2Templates
@@ -14,7 +16,7 @@ from db import get_session
 from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
                     Title)
 from profiles import (RATING_CAPS, active_profile, allowed_service_slugs,
-                      settings_locked, title_allowed)
+                      cert_level, settings_locked, title_allowed)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -28,6 +30,32 @@ templates.env.globals["current_theme"] = prefs.get_theme
 
 # Collection details never really change; fetch each id from TMDB once.
 _collection_cache: dict[int, dict] = {}
+
+# Coming Soon banner: (region, language) -> (built-at, slides). Release
+# schedules move slowly; refresh a few times a day.
+UPCOMING_TTL = 6 * 3600
+_upcoming_cache: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+async def _upcoming_slides(profile: Profile) -> list[dict]:
+    """Best-effort Coming Soon slides. Kid profiles with a rating cap get
+    none — unreleased titles have no certification yet, and the cap policy
+    hides unrated content."""
+    if profile.max_rating_level is not None:
+        return []
+    key = (prefs.get_region(), prefs.get_language())
+    hit = _upcoming_cache.get(key)
+    if hit and time.monotonic() - hit[0] < UPCOMING_TTL:
+        return hit[1]
+    try:
+        slides = await tmdb.get_upcoming()
+    except Exception:
+        return []
+    for s in slides:
+        when = datetime.strptime(s["release_date"], "%Y-%m-%d")
+        s["date_label"] = when.strftime("%b %d").replace(" 0", " ")
+    _upcoming_cache[key] = (time.monotonic(), slides)
+    return slides
 
 
 async def _random_collections(n: int = 5) -> list[dict]:
@@ -119,7 +147,18 @@ async def library(
             "added": max(r.added_at for r in rows),
             "raw_rating": stats.rating or 0,
             "votes": stats.vote_count or 0,
+            # Every provider dropped it (availability refresh flags rows).
+            "unavailable": all(r.unavailable_since for r in rows),
+            "unavailable_at": max((r.unavailable_since for r in rows
+                                   if r.unavailable_since), default=None),
         })
+    # "Recently left": groups every service dropped in the last 30 days,
+    # newest departures first — feeds the library's leaving banner.
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    leaving = sorted(
+        (g for g in groups
+         if g["unavailable"] and g["unavailable_at"] and g["unavailable_at"] >= cutoff),
+        key=lambda g: g["unavailable_at"], reverse=True)[:8]
     # "Highest rated" uses a Bayesian (IMDb-style) weighted rating, not the
     # raw TMDB average: WR = v/(v+m)*R + m/(v+m)*C. A 9.4 backed by a few
     # hundred votes shouldn't outrank an 8.9 backed by tens of thousands, so
@@ -175,6 +214,8 @@ async def library(
     return templates.TemplateResponse(request, "library.html", {
         "groups": groups,
         "collections": await _random_collections(),
+        "upcoming": await _upcoming_slides(profile),
+        "leaving": leaving,
         "services": services,
         "genres": genres,
         "decades": decades,
@@ -187,6 +228,154 @@ async def library(
         "active_profile": profile,
         "q": q,
         "sort": sort,
+    })
+
+
+# Discover: TMDB recommendations seeded by the profile's recent watches
+# (popular-on-your-services when there's no history yet), filtered to titles
+# your configured providers actually stream in the chosen region and that
+# aren't in the library. Building a page costs ~60 TMDB detail calls, so
+# results are cached per profile for a while; Refresh busts the cache.
+DISCOVER_TTL = 1800          # seconds a built page stays cached
+DISCOVER_SEEDS = 8           # recent watches used as recommendation seeds
+DISCOVER_CANDIDATES = 60     # candidates detail-fetched per build
+DISCOVER_RESULTS = 24        # cards shown
+# (profile id, region, language) -> (built-at, cards, seed titles)
+_discover_cache: dict[tuple, tuple[float, list[dict], list[str]]] = {}
+
+
+async def _build_discover(profile: Profile, region: str,
+                          session: AsyncSession) -> tuple[list[dict], list[str]]:
+    allowed = allowed_service_slugs(profile)
+    site_by_slug = {s["slug"]: s for s in sites.load_sites()}
+    services = (await session.execute(
+        select(Service).where(Service.enabled).order_by(Service.name)
+    )).scalars().all()
+    # Only sites with a TMDB provider id can be matched against availability.
+    provider_services = [
+        (site_by_slug[s.slug]["tmdb_provider_id"], s) for s in services
+        if (allowed is None or s.slug in allowed)
+        and site_by_slug.get(s.slug, {}).get("tmdb_provider_id")]
+    if not provider_services:
+        return [], []
+
+    watched = (await session.execute(
+        select(ProfileWatch).where(ProfileWatch.profile_id == profile.id)
+        .order_by(ProfileWatch.watched_at.desc()))).scalars().all()
+    watched_keys = {(w.tmdb_id, w.media_type.value) for w in watched}
+    library_keys = {(tid, mt.value) for tid, mt in (await session.execute(
+        select(Title.tmdb_id, Title.media_type))).all()}
+    seeds = [(w.tmdb_id, w.media_type.value) for w in watched[:DISCOVER_SEEDS]]
+
+    seed_titles: list[str] = []
+    if seeds:
+        name_by_key = {(tid, mt.value): name for tid, mt, name in (
+            await session.execute(
+                select(Title.tmdb_id, Title.media_type, Title.title))).all()}
+        for k in seeds:
+            name = name_by_key.get(k)
+            if name and name not in seed_titles:
+                seed_titles.append(name)
+
+    # Candidate keys scored by (how many seeds/providers surfaced it, best
+    # popularity seen). counts[key] = [hits, popularity].
+    counts: dict[tuple, list] = {}
+
+    def tally(key: tuple, popularity: float) -> None:
+        if key in library_keys or key in watched_keys:
+            return
+        entry = counts.setdefault(key, [0, 0.0])
+        entry[0] += 1
+        entry[1] = max(entry[1], popularity)
+
+    if seeds:
+        batches = await asyncio.gather(
+            *(tmdb.get_recommendations(tid, mt) for tid, mt in seeds),
+            return_exceptions=True)
+        for batch in batches:
+            if isinstance(batch, BaseException):
+                continue
+            for item in batch:
+                tally((item["tmdb_id"], item["media_type"]), item["popularity"])
+    else:
+        # Cold start: what's popular on each of your services right now.
+        pairs = [(pid, mt) for pid, _ in provider_services
+                 for mt in ("movie", "tv")]
+        batches = await asyncio.gather(
+            *(tmdb.discover_by_provider(pid, mt, limit=15, min_votes=500)
+              for pid, mt in pairs),
+            return_exceptions=True)
+        for (_, mt), batch in zip(pairs, batches):
+            if isinstance(batch, BaseException):
+                continue
+            for rank, tid in enumerate(batch):
+                tally((tid, mt), float(len(batch) - rank))
+
+    ranked = sorted(counts, key=lambda k: (counts[k][0], counts[k][1]),
+                    reverse=True)[:DISCOVER_CANDIDATES]
+
+    sem = asyncio.Semaphore(8)
+
+    async def fetch(tid: int, mt: str) -> dict | None:
+        async with sem:
+            try:
+                return await tmdb.get_details(tid, mt)
+            except Exception:
+                return None
+
+    details = await asyncio.gather(*(fetch(tid, mt) for tid, mt in ranked))
+    cards: list[dict] = []
+    for d in details:
+        if not d:
+            continue
+        # Same content policy the library applies to kid profiles.
+        if profile.max_rating_level is not None:
+            if d["mature"] and profile.max_rating_level < 3:
+                continue
+            level = cert_level(d["certification"])
+            if level is None or level > profile.max_rating_level:
+                continue
+        matches = []
+        for pid, service in provider_services:
+            offered = (pid in d["provider_regions"].get(region, set()) if region
+                       else any(pid in ids
+                                for ids in d["provider_regions"].values()))
+            if offered:
+                matches.append(service)
+        if not matches:
+            continue
+        cards.append({
+            "tmdb_id": d["tmdb_id"],
+            "media_type": d["media_type"],
+            "title": d["title"],
+            "poster_url": d["poster_url"],
+            "year": d["release_year"],
+            "rating": d["rating"],
+            "overview": d["overview"],
+            "services": [{"id": s.id, "name": s.name, "icon_path": s.icon_path}
+                         for s in matches],
+        })
+        if len(cards) >= DISCOVER_RESULTS:
+            break
+    return cards, seed_titles
+
+
+@router.get("/discover")
+async def discover(request: Request, refresh: str | None = None,
+                   session: AsyncSession = Depends(get_session)):
+    profile = await active_profile(request, session)
+    region = prefs.get_region()
+    key = (profile.id, region, prefs.get_language())
+    cached = _discover_cache.get(key)
+    if cached and not refresh and time.monotonic() - cached[0] < DISCOVER_TTL:
+        cards, seed_titles = cached[1], cached[2]
+    else:
+        cards, seed_titles = await _build_discover(profile, region, session)
+        _discover_cache[key] = (time.monotonic(), cards, seed_titles)
+    return templates.TemplateResponse(request, "discover.html", {
+        "cards": cards,
+        "seed_titles": seed_titles,
+        "active_profile": profile,
     })
 
 
@@ -314,5 +503,22 @@ async def detail(request: Request, title_id: int, session: AsyncSession = Depend
         "group_watched": watch is not None,
         "watched_at": watch.watched_at if watch else None,
         "in_list": in_list,
+        "trailer": await _get_trailer(title),
         "active_profile": profile,
     })
+
+
+# (tmdb id, media type, language) -> {key, name} or None ("no trailer").
+# Failed lookups aren't cached, so a TMDB blip retries on the next view.
+_trailer_cache: dict[tuple, dict | None] = {}
+
+
+async def _get_trailer(title: Title) -> dict | None:
+    key = (title.tmdb_id, title.media_type.value, prefs.get_language())
+    if key not in _trailer_cache:
+        try:
+            _trailer_cache[key] = await tmdb.get_trailer(
+                title.tmdb_id, title.media_type.value)
+        except Exception:
+            return None
+    return _trailer_cache[key]

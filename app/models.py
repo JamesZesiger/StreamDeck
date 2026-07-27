@@ -58,6 +58,11 @@ class Title(Base):
     # Comma-separated ISO country codes where this row's service streams the
     # title (TMDB/JustWatch watch-provider data). NULL = never fetched.
     regions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set by the weekly availability refresh when the service stops streaming
+    # the title anywhere; cleared if it comes back. NULL = available (or a
+    # custom site with no provider id, which can't be checked).
+    unavailable_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     deep_link: Mapped[str] = mapped_column(String(1000))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -87,6 +87,82 @@ async def create_title(
     return Response(headers={"HX-Redirect": f"/titles/{title.id}"})
 
 
+@router.post("/discover/add")
+async def discover_add(
+    request: Request,
+    tmdb_id: int = Form(...),
+    media_type: str = Form(...),
+    service_id: int = Form(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """One-click add from the Discover page: like create_title, but the deep
+    link is resolved (Wikidata direct link, else the site's search page)
+    instead of pasted."""
+    await active_profile(request, session)
+    service = await session.get(Service, service_id)
+    if not service or media_type not in ("movie", "tv"):
+        raise HTTPException(400, "Unknown service or media type")
+    existing = (await session.execute(
+        select(Title).where(Title.service_id == service.id,
+                            Title.tmdb_id == tmdb_id,
+                            Title.media_type == MediaType(media_type))
+    )).scalar_one_or_none()
+    if existing:
+        return _in_library_snippet(existing.id)
+    d = await tmdb.get_details(tmdb_id, media_type)
+    site = sites.get_site(service.slug) or {"base_domain": service.base_domain}
+    deep_link = ""
+    if (d["imdb_id"] and not site.get("search_links_only")
+            and wikidata.supported(service.slug)):
+        try:
+            links = await wikidata.resolve_links(
+                service.slug, [(d["imdb_id"], media_type)])
+            deep_link = links.get(d["imdb_id"], "")
+        except Exception:
+            deep_link = ""
+    if not deep_link:
+        deep_link = sites.title_search_link(site, d["title"])
+    title = Title(
+        service_id=service.id,
+        tmdb_id=d["tmdb_id"],
+        media_type=MediaType(d["media_type"]),
+        title=d["title"],
+        overview=d["overview"],
+        poster_url=d["poster_url"],
+        backdrop_url=d["backdrop_url"],
+        runtime_minutes=d["runtime_minutes"],
+        release_year=d["release_year"],
+        genres=d["genres"],
+        mature=d["mature"],
+        rating=d["rating"],
+        vote_count=d["vote_count"],
+        popularity=d["popularity"],
+        certification=d["certification"],
+        imdb_id=d["imdb_id"],
+        regions=tmdb.regions_for_provider(
+            d["provider_regions"], site.get("tmdb_provider_id")),
+        deep_link=deep_link,
+    )
+    session.add(title)
+    await session.commit()
+    # Drop the card from every cached Discover page — it's in the library now.
+    from routers import pages
+    for key, (ts, cards, seeds) in pages._discover_cache.items():
+        pages._discover_cache[key] = (ts, [
+            c for c in cards
+            if not (c["tmdb_id"] == tmdb_id and c["media_type"] == media_type)
+        ], seeds)
+    return _in_library_snippet(title.id)
+
+
+def _in_library_snippet(title_id: int) -> Response:
+    return Response(
+        content=(f'<a href="/titles/{title_id}" class="text-xs font-medium '
+                 f'text-emerald-400 hover:text-emerald-300">In library ✓</a>'),
+        media_type="text/html",
+    )
+
+
 @router.patch("/titles/{title_id}/watched")
 async def toggle_watched(request: Request, title_id: int,
                          session: AsyncSession = Depends(get_session)):

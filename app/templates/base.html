@@ -36,6 +36,7 @@
       {% block nav_left %}{% endblock %}
       <a href="/" class="text-xl font-bold tracking-tight shrink-0 mr-auto">Stream<span class="text-red-500">Deck</span></a>
       {% block nav_extra %}{% endblock %}
+      <a href="/discover" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Discover</a>
       <a href="/sites" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Sites</a>
       <select name="region" title="Watch region — only titles available here are shown"
               hx-post="/api/settings/region" hx-trigger="change" hx-swap="none"

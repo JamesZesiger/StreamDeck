@@ -35,6 +35,10 @@
           <img src="{{ p.service.icon_path }}" alt="" class="w-7 h-7 rounded-md">
           <span class="flex-1 min-w-0 font-medium">{{ p.service.name }}
             {% if loop.first and providers|length > 1 %}<span class="ml-2 text-xs text-zinc-500">default</span>{% endif %}
+            {% if p.unavailable_since %}
+            <span class="block text-xs text-amber-400">
+              No longer streamed here (noticed {{ p.unavailable_since.strftime('%Y-%m-%d') }})</span>
+            {% endif %}
             {% if p.regions %}
             {% set codes = p.regions.split(', ') %}
             <span class="block text-xs text-zinc-500 truncate" title="Available in: {{ p.regions }}">
@@ -49,6 +53,10 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
+        {% if trailer %}
+        <button onclick="openTrailer()"
+                class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-2.5 text-sm">▶ Trailer</button>
+        {% endif %}
         <button hx-patch="/api/titles/{{ t.id }}/watched" hx-swap="innerHTML"
                 class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-2.5 text-sm">
           {{ 'Watched ✓' if group_watched else 'Mark watched' }}
@@ -63,4 +71,36 @@
     </div>
   </div>
 </div>
+
+{% if trailer %}
+<div id="trailer-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+     onclick="if (event.target === this) closeTrailer()">
+  <div class="w-full max-w-3xl">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-sm text-zinc-300 truncate pr-4">{{ trailer.name }}</p>
+      <button onclick="closeTrailer()" class="text-zinc-400 hover:text-zinc-100 text-sm shrink-0">✕ Close</button>
+    </div>
+    <div class="aspect-video bg-black rounded-xl overflow-hidden ring-1 ring-zinc-700 shadow-2xl">
+      <!-- src is set on open so YouTube loads nothing until asked, and
+           cleared on close so playback actually stops. -->
+      <iframe id="trailer-frame" src="" title="{{ trailer.name }}" class="w-full h-full"
+              allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+</div>
+<script>
+  function openTrailer() {
+    document.getElementById('trailer-frame').src =
+      'https://www.youtube-nocookie.com/embed/{{ trailer.key }}?autoplay=1&rel=0';
+    document.getElementById('trailer-modal').classList.remove('hidden');
+  }
+  function closeTrailer() {
+    document.getElementById('trailer-modal').classList.add('hidden');
+    document.getElementById('trailer-frame').src = '';
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeTrailer();
+  });
+</script>
+{% endif %}
 {% endblock %}

@@ -226,35 +226,44 @@
   {% endfor %}
   <div class="absolute bottom-3 right-4 flex gap-2 z-10">
     {% for c in collections %}
-    <button type="button" title="{{ c.name }}" onclick="carouselGo({{ loop.index0 }})"
+    <button type="button" title="{{ c.name }}"
             class="carousel-dot w-2.5 h-2.5 rounded-full transition-colors {{ 'bg-zinc-100' if loop.first else 'bg-zinc-500/60 hover:bg-zinc-400' }}"></button>
     {% endfor %}
   </div>
 </div>
-<script>
-(() => {
-  const slides = document.querySelectorAll('#collection-carousel .carousel-slide');
-  const dots = document.querySelectorAll('#collection-carousel .carousel-dot');
-  if (slides.length < 2) return;
-  let current = 0;
-  function show(n) {
-    slides[current].classList.add('opacity-0', 'pointer-events-none');
-    dots[current].classList.replace('bg-zinc-100', 'bg-zinc-500/60');
-    current = n;
-    slides[current].classList.remove('opacity-0', 'pointer-events-none');
-    dots[current].classList.replace('bg-zinc-500/60', 'bg-zinc-100');
-  }
-  const next = () => show((current + 1) % slides.length);
-  let timer = setInterval(next, 5000);
-  window.carouselGo = (n) => {
-    clearInterval(timer);
-    show(n);
-    timer = setInterval(next, 5000);
-  };
-})();
-</script>
 {% endif %}
+
+{% set show_banners = true %}
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}
 </div>
+
+<script>
+  // Shared fade carousel: rotates .carousel-slide children, dots jump + reset
+  // the timer. Used by the collections and Coming Soon heroes.
+  function initCarousel(rootId) {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    const slides = root.querySelectorAll('.carousel-slide');
+    const dots = root.querySelectorAll('.carousel-dot');
+    if (slides.length < 2) return;
+    let current = 0;
+    function show(n) {
+      slides[current].classList.add('opacity-0', 'pointer-events-none');
+      dots[current].classList.replace('bg-zinc-100', 'bg-zinc-500/60');
+      current = n;
+      slides[current].classList.remove('opacity-0', 'pointer-events-none');
+      dots[current].classList.replace('bg-zinc-500/60', 'bg-zinc-100');
+    }
+    const next = () => show((current + 1) % slides.length);
+    let timer = setInterval(next, 5000);
+    dots.forEach((dot, i) => dot.addEventListener('click', () => {
+      clearInterval(timer);
+      show(i);
+      timer = setInterval(next, 5000);
+    }));
+  }
+  initCarousel('collection-carousel');
+  initCarousel('upcoming-carousel');
+</script>
 {% endblock %}
