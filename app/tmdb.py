@@ -287,6 +287,39 @@ async def get_upcoming(limit: int = 8) -> list[dict]:
     return items[:limit]
 
 
+async def get_seasons(tmdb_id: int) -> list[dict]:
+    """A show's seasons (specials excluded): number, name, episode count."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{BASE}/tv/{tmdb_id}",
+            params={"api_key": settings.tmdb_api_key,
+                    "language": prefs.get_language()},
+        )
+        r.raise_for_status()
+    return [{
+        "season_number": s["season_number"],
+        "name": s.get("name") or f"Season {s['season_number']}",
+        "episode_count": s.get("episode_count") or 0,
+    } for s in r.json().get("seasons", [])
+        if s.get("season_number", 0) > 0 and (s.get("episode_count") or 0) > 0]
+
+
+async def get_season_episodes(tmdb_id: int, season_number: int) -> list[dict]:
+    """One season's episode list: number, name, air date."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{BASE}/tv/{tmdb_id}/season/{season_number}",
+            params={"api_key": settings.tmdb_api_key,
+                    "language": prefs.get_language()},
+        )
+        r.raise_for_status()
+    return [{
+        "episode": e["episode_number"],
+        "name": e.get("name") or f"Episode {e['episode_number']}",
+        "air_date": e.get("air_date") or "",
+    } for e in r.json().get("episodes", [])]
+
+
 async def get_trailer(tmdb_id: int, media_type: str) -> dict | None:
     """Best YouTube trailer for a title ({key, name}), or None. Prefers
     official trailers over teasers; asks in the app language but falls back

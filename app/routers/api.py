@@ -17,8 +17,8 @@ import wikidata
 from db import SessionLocal, get_session
 
 log = logging.getLogger(__name__)
-from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
-                    Title)
+from models import (MediaType, Profile, ProfileEpisodeWatch, ProfileListItem,
+                    ProfileWatch, Service, Title)
 from profiles import (PIN_COOKIE, PIN_UNLOCK_SECONDS, RATING_CAPS,
                       active_profile, set_profile_cookie, settings_locked)
 
@@ -209,6 +209,60 @@ async def toggle_list(request: Request, title_id: int,
         label = "In my list ✓"
     await session.commit()
     return Response(content=label, media_type="text/plain")
+
+
+@router.post("/episodes/toggle")
+async def toggle_episode(request: Request, tmdb_id: int = Form(...),
+                         season: int = Form(...), episode: int = Form(...),
+                         session: AsyncSession = Depends(get_session)):
+    """Flip one episode's watched state; returns the toggle button re-rendered."""
+    profile = await active_profile(request, session)
+    row = (await session.execute(
+        select(ProfileEpisodeWatch).where(
+            ProfileEpisodeWatch.profile_id == profile.id,
+            ProfileEpisodeWatch.tmdb_id == tmdb_id,
+            ProfileEpisodeWatch.season == season,
+            ProfileEpisodeWatch.episode == episode)
+    )).scalar_one_or_none()
+    if row:
+        await session.delete(row)
+        watched = False
+    else:
+        session.add(ProfileEpisodeWatch(profile_id=profile.id, tmdb_id=tmdb_id,
+                                        season=season, episode=episode))
+        watched = True
+    await session.commit()
+    return templates.TemplateResponse(request, "partials/episode_toggle.html", {
+        "tmdb_id": tmdb_id, "season_number": season,
+        "episode": episode, "watched": watched,
+    })
+
+
+@router.post("/episodes/season")
+async def mark_season(request: Request, tmdb_id: int = Form(...),
+                      season: int = Form(...), watched: str = Form(...),
+                      session: AsyncSession = Depends(get_session)):
+    """Mark a whole season (un)watched; returns the episode list re-rendered."""
+    profile = await active_profile(request, session)
+    from routers import pages
+    episodes = await pages.episodes_cached(tmdb_id, season)
+    existing = {r.episode: r for r in (await session.execute(
+        select(ProfileEpisodeWatch).where(
+            ProfileEpisodeWatch.profile_id == profile.id,
+            ProfileEpisodeWatch.tmdb_id == tmdb_id,
+            ProfileEpisodeWatch.season == season))).scalars()}
+    if watched == "1":
+        for e in episodes:
+            if e["episode"] not in existing:
+                session.add(ProfileEpisodeWatch(
+                    profile_id=profile.id, tmdb_id=tmdb_id,
+                    season=season, episode=e["episode"]))
+    else:
+        for row in existing.values():
+            await session.delete(row)
+    await session.commit()
+    ctx = await pages.season_context(profile, tmdb_id, season, session)
+    return templates.TemplateResponse(request, "partials/episode_list.html", ctx)
 
 
 # Kid mode: while the active profile has it on (and a PIN exists), settings

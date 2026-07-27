@@ -13,8 +13,8 @@ import prefs
 import sites
 import tmdb
 from db import get_session
-from models import (MediaType, Profile, ProfileListItem, ProfileWatch, Service,
-                    Title)
+from models import (MediaType, Profile, ProfileEpisodeWatch, ProfileListItem,
+                    ProfileWatch, Service, Title)
 from profiles import (RATING_CAPS, active_profile, allowed_service_slugs,
                       cert_level, settings_locked, title_allowed)
 
@@ -30,6 +30,49 @@ templates.env.globals["current_theme"] = prefs.get_theme
 
 # Collection details never really change; fetch each id from TMDB once.
 _collection_cache: dict[int, dict] = {}
+
+# Season/episode lists: airing shows gain episodes, so cache with a TTL.
+SEASON_TTL = 6 * 3600
+_seasons_cache: dict[tuple, tuple[float, list[dict]]] = {}
+_episodes_cache: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+async def seasons_cached(tmdb_id: int) -> list[dict]:
+    key = (tmdb_id, prefs.get_language())
+    hit = _seasons_cache.get(key)
+    if not hit or time.monotonic() - hit[0] > SEASON_TTL:
+        hit = (time.monotonic(), await tmdb.get_seasons(tmdb_id))
+        _seasons_cache[key] = hit
+    return hit[1]
+
+
+async def episodes_cached(tmdb_id: int, season_number: int) -> list[dict]:
+    key = (tmdb_id, season_number, prefs.get_language())
+    hit = _episodes_cache.get(key)
+    if not hit or time.monotonic() - hit[0] > SEASON_TTL:
+        hit = (time.monotonic(),
+               await tmdb.get_season_episodes(tmdb_id, season_number))
+        _episodes_cache[key] = hit
+    return hit[1]
+
+
+async def season_context(profile: Profile, tmdb_id: int, season_number: int,
+                         session: AsyncSession) -> dict:
+    """Context for the episode-list partial — shared with the season-level
+    mark endpoint in api.py so both render the same fragment."""
+    episodes = await episodes_cached(tmdb_id, season_number)
+    watched_eps = set((await session.execute(
+        select(ProfileEpisodeWatch.episode).where(
+            ProfileEpisodeWatch.profile_id == profile.id,
+            ProfileEpisodeWatch.tmdb_id == tmdb_id,
+            ProfileEpisodeWatch.season == season_number))).scalars())
+    return {
+        "episodes": episodes,
+        "watched_eps": watched_eps,
+        "tmdb_id": tmdb_id,
+        "season_number": season_number,
+        "all_watched": bool(episodes) and len(watched_eps) >= len(episodes),
+    }
 
 # Coming Soon banner: (region, language) -> (built-at, slides). Release
 # schedules move slowly; refresh a few times a day.
@@ -95,6 +138,11 @@ async def library(
     list_keys = {tuple(row) for row in (await session.execute(
         select(ProfileListItem.tmdb_id, ProfileListItem.media_type)
         .where(ProfileListItem.profile_id == profile.id))).all()}
+    ep_by_show: dict[int, list[ProfileEpisodeWatch]] = {}
+    for r in (await session.execute(
+            select(ProfileEpisodeWatch)
+            .where(ProfileEpisodeWatch.profile_id == profile.id))).scalars():
+        ep_by_show.setdefault(r.tmdb_id, []).append(r)
 
     decade_int = int(decade) if decade and decade.isdigit() else None
     allowed = allowed_service_slugs(profile)
@@ -152,8 +200,18 @@ async def library(
             "unavailable_at": max((r.unavailable_since for r in rows
                                    if r.unavailable_since), default=None),
         })
+        # TV episode progress: chip shows the furthest-watched episode.
+        eps = ep_by_show.get(key[0]) if key[1] == MediaType.tv else None
+        latest = max(eps, key=lambda r: (r.season, r.episode)) if eps else None
+        groups[-1]["ep_label"] = f"S{latest.season} · E{latest.episode}" if latest else None
+        groups[-1]["ep_last_at"] = max(r.watched_at for r in eps) if eps else None
     # "Recently left": groups every service dropped in the last 30 days,
     # newest departures first — feeds the library's leaving banner.
+    # Shows mid-watch (episode activity, not marked fully watched), most
+    # recently watched first — feeds the Continue Watching strip.
+    continuing = sorted(
+        (g for g in groups if g["ep_label"] and not g["watched"]),
+        key=lambda g: g["ep_last_at"], reverse=True)[:8]
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     leaving = sorted(
         (g for g in groups
@@ -216,6 +274,7 @@ async def library(
         "collections": await _random_collections(),
         "upcoming": await _upcoming_slides(profile),
         "leaving": leaving,
+        "continuing": continuing,
         "services": services,
         "genres": genres,
         "decades": decades,
@@ -384,10 +443,18 @@ async def profiles_menu(request: Request, session: AsyncSession = Depends(get_se
     profile = await active_profile(request, session)
     profiles = (await session.execute(
         select(Profile).order_by(Profile.id))).scalars().all()
+    watched_count = (await session.execute(
+        select(func.count()).select_from(ProfileWatch)
+        .where(ProfileWatch.profile_id == profile.id))).scalar_one()
+    list_count = (await session.execute(
+        select(func.count()).select_from(ProfileListItem)
+        .where(ProfileListItem.profile_id == profile.id))).scalar_one()
     return templates.TemplateResponse(request, "partials/profile_menu.html", {
         "profiles": profiles,
         "active_profile": profile,
         "locked": settings_locked(profile, request),
+        "watched_count": watched_count,
+        "list_count": list_count,
     })
 
 
@@ -497,6 +564,32 @@ async def detail(request: Request, title_id: int, session: AsyncSession = Depend
                                       ProfileListItem.tmdb_id == title.tmdb_id,
                                       ProfileListItem.media_type == title.media_type)
     )).scalar_one_or_none() is not None
+
+    # TV: seasons + this profile's episode progress. Best-effort — no
+    # seasons (TMDB down / none listed) just hides the episode tracker.
+    seasons, watched_by_season, ep_progress = [], {}, None
+    if title.media_type == MediaType.tv:
+        try:
+            seasons = await seasons_cached(title.tmdb_id)
+        except Exception:
+            seasons = []
+        if seasons:
+            ep_watched = {(r.season, r.episode) for r in (await session.execute(
+                select(ProfileEpisodeWatch).where(
+                    ProfileEpisodeWatch.profile_id == profile.id,
+                    ProfileEpisodeWatch.tmdb_id == title.tmdb_id))).scalars()}
+            for s, _ in ep_watched:
+                watched_by_season[s] = watched_by_season.get(s, 0) + 1
+            next_up = next(
+                ((s["season_number"], e) for s in seasons
+                 for e in range(1, s["episode_count"] + 1)
+                 if (s["season_number"], e) not in ep_watched), None)
+            ep_progress = {
+                "watched": len(ep_watched),
+                "total": sum(s["episode_count"] for s in seasons),
+                "next_up": next_up,
+            }
+
     return templates.TemplateResponse(request, "detail.html", {
         "t": title,
         "providers": providers,
@@ -504,8 +597,24 @@ async def detail(request: Request, title_id: int, session: AsyncSession = Depend
         "watched_at": watch.watched_at if watch else None,
         "in_list": in_list,
         "trailer": await _get_trailer(title),
+        "seasons": seasons,
+        "watched_by_season": watched_by_season,
+        "ep_progress": ep_progress,
         "active_profile": profile,
     })
+
+
+@router.get("/titles/{title_id}/episodes/{season_number}")
+async def season_episodes(request: Request, title_id: int, season_number: int,
+                          session: AsyncSession = Depends(get_session)):
+    """htmx partial: one season's episode list, loaded when its accordion
+    opens on the detail page."""
+    title = await session.get(Title, title_id)
+    if not title or title.media_type != MediaType.tv:
+        raise HTTPException(404)
+    profile = await active_profile(request, session)
+    ctx = await season_context(profile, title.tmdb_id, season_number, session)
+    return templates.TemplateResponse(request, "partials/episode_list.html", ctx)
 
 
 # (tmdb id, media type, language) -> {key, name} or None ("no trailer").
