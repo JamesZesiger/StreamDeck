@@ -188,7 +188,8 @@ async def _backfill_deep_links() -> None:
             upgraded = 0
             for service_id, slug in services.items():
                 site = site_by_slug.get(slug)
-                if not site or not wikidata.supported(slug):
+                if (not site or site.get("search_links_only")
+                        or not wikidata.supported(slug)):
                     continue
                 # A deep_link starting like the search template is a fallback.
                 template = site.get("search_url") or ""

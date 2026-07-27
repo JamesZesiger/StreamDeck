@@ -107,6 +107,14 @@
           <input name="search_url" value="{{ s.search_url }}"
                  class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2">
         </div>
+        <div class="sm:col-span-2">
+          <label class="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input type="checkbox" name="search_links_only" {{ 'checked' if s.search_links_only }}
+                   class="w-4 h-4 accent-red-600">
+            <span>Search-page links only
+              <span class="text-zinc-500">— skip Wikidata; imported titles always deep-link to the search URL</span></span>
+          </label>
+        </div>
         <div class="sm:col-span-2 flex items-center gap-4">
           <button type="submit" class="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white px-5 py-2 text-sm font-semibold">Save</button>
           <button type="button" onclick="document.getElementById('edit-{{ s.slug }}').classList.add('hidden')"

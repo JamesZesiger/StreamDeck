@@ -23,6 +23,8 @@ templates.env.globals["languages"] = prefs.LANGUAGES
 templates.env.globals["current_language"] = prefs.get_language
 templates.env.globals["regions"] = prefs.REGIONS
 templates.env.globals["current_region"] = prefs.get_region
+templates.env.globals["accents"] = prefs.ACCENTS
+templates.env.globals["current_theme"] = prefs.get_theme
 
 # Collection details never really change; fetch each id from TMDB once.
 _collection_cache: dict[int, dict] = {}
@@ -200,19 +202,22 @@ async def profiles_menu(request: Request, session: AsyncSession = Depends(get_se
     })
 
 
-@router.get("/settings/menu")
-async def settings_menu(request: Request, session: AsyncSession = Depends(get_session)):
+@router.get("/settings")
+async def settings_page(request: Request, session: AsyncSession = Depends(get_session)):
     profile = await active_profile(request, session)
+    if settings_locked(profile, request):
+        return templates.TemplateResponse(request, "pin_gate.html", {
+            "active_profile": profile,
+            "gate_action": "change settings",
+        })
     services = (await session.execute(
         select(Service).where(Service.enabled).order_by(Service.name)
     )).scalars().all()
-    allowed = allowed_service_slugs(profile)
-    return templates.TemplateResponse(request, "partials/settings_menu.html", {
+    return templates.TemplateResponse(request, "settings.html", {
         "active_profile": profile,
         "services": services,
-        "allowed": allowed,
+        "allowed": allowed_service_slugs(profile),
         "rating_caps": RATING_CAPS,
-        "locked": settings_locked(profile, request),
         "pin_set": bool(prefs.get_pin_hash()),
     })
 
@@ -237,6 +242,7 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         # profile is active.
         return templates.TemplateResponse(request, "pin_gate.html", {
             "active_profile": profile,
+            "gate_action": "manage sites",
         })
     title_counts = dict((await session.execute(
         select(Service.slug, func.count(Title.id))
@@ -250,6 +256,7 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         "title_count": title_counts.get(s["slug"], 0),
         "tmdb_provider_id": s.get("tmdb_provider_id"),
         "search_url": s.get("search_url", ""),
+        "search_links_only": s.get("search_links_only", False),
     } for s in sites.load_sites()]
     return templates.TemplateResponse(request, "sites.html", {
         "sites": site_rows, "msg": msg, "show_add": bool(add),
