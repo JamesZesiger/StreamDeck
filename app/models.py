@@ -103,6 +103,22 @@ class ProfileWatch(Base):
     watched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ProfileEpisodeWatch(Base):
+    """One watched TV episode. Keyed by the show's TMDB id (episode tracking
+    is TV-only, so no media_type) — shared across services like ProfileWatch."""
+
+    __tablename__ = "profile_episode_watches"
+    __table_args__ = (UniqueConstraint("profile_id", "tmdb_id", "season", "episode"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"), index=True)
+    tmdb_id: Mapped[int] = mapped_column(Integer, index=True)
+    season: Mapped[int] = mapped_column(Integer)
+    episode: Mapped[int] = mapped_column(Integer)
+    watched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ProfileListItem(Base):
     """A title on this profile's personal watch list."""
 

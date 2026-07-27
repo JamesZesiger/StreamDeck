@@ -10,6 +10,16 @@
   <div id="profile-pin-msg"></div>
 </div>
 {% else %}
+<div class="py-1 border-b border-zinc-800">
+  <a href="/?list=true" class="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-zinc-800">
+    <span>My list</span>
+    <span class="text-xs text-zinc-500">{{ list_count }}</span>
+  </a>
+  <a href="/?watched=true" class="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-zinc-800">
+    <span>Watched</span>
+    <span class="text-xs text-zinc-500">{{ watched_count }}</span>
+  </a>
+</div>
 <div class="py-1">
   {% for p in profiles %}
   <div class="flex items-center">

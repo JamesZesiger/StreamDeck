@@ -1,0 +1,6 @@
+<button hx-post="/api/episodes/toggle"
+        hx-vals='{"tmdb_id": {{ tmdb_id }}, "season": {{ season_number }}, "episode": {{ episode }}}'
+        hx-swap="outerHTML" hx-disabled-elt="this"
+        title="{{ 'Mark unwatched' if watched else 'Mark watched' }}"
+        class="w-7 h-7 shrink-0 rounded-full grid place-items-center text-xs font-bold transition
+               {{ 'bg-emerald-600 hover:bg-emerald-500 text-white' if watched else 'bg-zinc-800 hover:bg-zinc-700 text-zinc-500' }}">✓</button>
