@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Settings — StreamDeck{% endblock %}
+{% block content %}
+<div class="max-w-xl mx-auto">
+  <h1 class="text-2xl font-bold mb-1">Settings</h1>
+  <p class="text-sm text-zinc-500 mb-6">Saved to the current profile ({{ active_profile.name }}).
+    Kid mode locks settings and profile switching behind the parent PIN.</p>
+
+  <div class="space-y-6">
+    <section class="bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+      <h2 class="font-semibold mb-3">Age rating cap</h2>
+      <select name="level" hx-patch="/api/settings/rating-cap" hx-trigger="change" hx-swap="none"
+              class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2 text-sm">
+        <option value="">No limit</option>
+        {% for lvl, label in rating_caps %}
+        <option value="{{ lvl }}" {{ 'selected' if active_profile.max_rating_level == lvl }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if active_profile.max_rating_level is not none %}
+      <p class="text-xs text-zinc-500 mt-2">Titles with no known rating are hidden while a cap is set.</p>
+      {% endif %}
+    </section>
+
+    <section class="bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+      <h2 class="font-semibold mb-1">Allowed services</h2>
+      <p class="text-sm text-zinc-500 mb-3">
+        {{ allowed|length ~ ' of ' ~ services|length ~ ' visible' if allowed is not none else 'All services visible' }} for this profile.</p>
+      <div class="space-y-2">
+        {% for s in services %}
+        <label class="flex items-center gap-2.5 text-sm cursor-pointer">
+          <input type="checkbox" {{ 'checked' if allowed is none or s.slug in allowed }}
+                 hx-patch="/api/settings/service-toggle" hx-vals='{"slug": "{{ s.slug }}"}' hx-swap="none"
+                 class="w-4 h-4 accent-red-600">
+          <img src="{{ s.icon_path }}" alt="" class="w-4 h-4 rounded-sm">
+          <span class="truncate">{{ s.name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% set theme = current_theme() %}
+    <section class="bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+      <h2 class="font-semibold mb-1">Theme</h2>
+      <p class="text-sm text-zinc-500 mb-4">Applies to everyone, on every profile.</p>
+      <form id="theme-form" class="space-y-4">
+        <div>
+          <label class="block text-sm mb-2">Accent color</label>
+          <div class="flex flex-wrap gap-2.5">
+            {% for name, palette in accents.items() %}
+            <label title="{{ name|capitalize }}" class="cursor-pointer">
+              <input type="radio" name="accent" value="{{ name }}" {{ 'checked' if theme.accent == name }}
+                     hx-post="/api/settings/theme" hx-include="#theme-form" hx-swap="none"
+                     class="peer sr-only">
+              <span class="block w-8 h-8 rounded-full ring-offset-2 ring-offset-zinc-900
+                           peer-checked:ring-2 peer-checked:ring-zinc-100 hover:scale-110 transition-transform"
+                    style="background: {{ palette['500'] }}"></span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm mb-1">Background</label>
+            <select name="bg_mode" hx-post="/api/settings/theme" hx-include="#theme-form"
+                    hx-trigger="change" hx-swap="none"
+                    class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2 text-sm">
+              <option value="solid" {{ 'selected' if theme.bg_mode == 'solid' }}>Solid color</option>
+              <option value="gradient" {{ 'selected' if theme.bg_mode == 'gradient' }}>Gradient</option>
+              <option value="animated" {{ 'selected' if theme.bg_mode == 'animated' }}>Animated gradient</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-4">
+            <label class="text-sm">
+              <span class="block mb-1">{{ 'Color' if theme.bg_mode == 'solid' else 'From' }}</span>
+              <input type="color" name="bg_from" value="{{ theme.bg_from }}"
+                     hx-post="/api/settings/theme" hx-include="#theme-form"
+                     hx-trigger="change" hx-swap="none"
+                     class="w-14 h-9 rounded-lg bg-zinc-950 border border-zinc-700 cursor-pointer">
+            </label>
+            <label class="text-sm {{ 'opacity-40 pointer-events-none' if theme.bg_mode == 'solid' }}">
+              <span class="block mb-1">To</span>
+              <input type="color" name="bg_to" value="{{ theme.bg_to }}"
+                     hx-post="/api/settings/theme" hx-include="#theme-form"
+                     hx-trigger="change" hx-swap="none"
+                     class="w-14 h-9 rounded-lg bg-zinc-950 border border-zinc-700 cursor-pointer">
+            </label>
+          </div>
+        </div>
+        <div class="{{ 'hidden' if theme.bg_mode == 'solid' }}">
+          <label class="block text-sm mb-1">Gradient angle · {{ theme.bg_angle }}°</label>
+          <input type="range" name="bg_angle" min="0" max="360" step="5" value="{{ theme.bg_angle }}"
+                 hx-post="/api/settings/theme" hx-include="#theme-form"
+                 hx-trigger="change" hx-swap="none"
+                 class="w-full accent-red-600">
+        </div>
+        <button type="button" hx-post="/api/settings/theme" hx-include="#theme-form"
+                hx-vals='{"reset": "1"}' hx-swap="none"
+                class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm">
+          Reset to default</button>
+      </form>
+    </section>
+
+    <section class="bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5 space-y-3">
+      <label class="flex items-center justify-between gap-3 cursor-pointer">
+        <span class="font-semibold">Kid mode</span>
+        <input type="checkbox" {{ 'checked' if active_profile.kid_mode }}
+               hx-patch="/api/settings/kid-mode" hx-target="#settings-msg" hx-swap="innerHTML"
+               {% if not pin_set %}hx-include="#kid-pin"{% endif %}
+               class="w-4 h-4 accent-red-600">
+      </label>
+      {% if not pin_set %}
+      <input id="kid-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+             placeholder="Set parent PIN (4–8 digits)" autocomplete="off"
+             class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2 text-sm">
+      {% else %}
+      <form hx-post="/api/settings/pin" hx-target="#settings-msg" hx-swap="innerHTML" class="flex gap-1.5">
+        <input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+               placeholder="Change parent PIN" required autocomplete="off"
+               class="min-w-0 flex-1 rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2 text-sm">
+        <button class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-2 text-sm shrink-0">Save</button>
+      </form>
+      {% endif %}
+      {% if active_profile.kid_mode and pin_set %}
+      <button type="button" hx-post="/api/pin/lock"
+              class="w-full rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-2 text-sm">
+        Lock now</button>
+      {% endif %}
+      <div id="settings-msg" class="empty:hidden"></div>
+    </section>
+  </div>
+</div>
+{% endblock %}

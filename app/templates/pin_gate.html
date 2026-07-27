@@ -3,7 +3,7 @@
 {% block content %}
 <div class="max-w-sm mx-auto mt-16 bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-6 space-y-3 text-center">
   <h1 class="font-semibold">Kid mode is on</h1>
-  <p class="text-sm text-zinc-400">Enter the parent PIN to manage sites.</p>
+  <p class="text-sm text-zinc-400">Enter the parent PIN to {{ gate_action or "continue" }}.</p>
   <form hx-post="/api/pin/unlock" hx-target="#gate-msg" hx-swap="innerHTML" class="flex gap-1.5 justify-center">
     <input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8"
            placeholder="PIN" required autocomplete="off" autofocus

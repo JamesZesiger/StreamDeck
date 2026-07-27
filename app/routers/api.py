@@ -1,6 +1,7 @@
 import asyncio
 import html
 import logging
+import re
 from urllib.parse import quote
 
 import httpx
@@ -323,13 +324,15 @@ async def edit_site(
     base_domain: str = Form(...),
     tmdb_provider_id: str = Form(""),
     search_url: str = Form(""),
+    search_links_only: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
     await _unlocked_profile(request, session)
     provider_id = int(tmdb_provider_id) if tmdb_provider_id.strip().isdigit() else None
     try:
         site = sites.update_site(slug, name, base_domain,
-                                 provider_id, search_url)
+                                 provider_id, search_url,
+                                 search_links_only=bool(search_links_only))
     except ValueError as exc:
         return _msg(str(exc))
     service = (await session.execute(
@@ -406,8 +409,11 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                         *(fetch(i, media_type) for i in chunk))
                     # Direct title links where Wikidata knows the service id;
                     # everything else falls back to the site's search page.
-                    links = await wikidata.resolve_links(
-                        slug, [(d["imdb_id"], media_type) for d in details if d])
+                    # Sites with "search links only" set skip Wikidata.
+                    links = ({} if site.get("search_links_only")
+                             else await wikidata.resolve_links(
+                                 slug, [(d["imdb_id"], media_type)
+                                        for d in details if d]))
                     for d in details:
                         if not d:
                             continue
@@ -551,6 +557,41 @@ async def _refresh_metadata() -> None:
         raise
     except Exception:
         log.exception("Language refresh failed")
+
+
+_HEX_RE = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+@router.post("/settings/theme")
+async def change_theme(
+    request: Request,
+    accent: str = Form(...),
+    bg_mode: str = Form(...),
+    bg_from: str = Form(...),
+    bg_to: str = Form(...),
+    bg_angle: str = Form("160"),
+    reset: str = Form(""),
+    session: AsyncSession = Depends(get_session),
+):
+    await _unlocked_profile(request, session)
+    if reset:
+        prefs.set_theme(dict(prefs.DEFAULT_THEME))
+        return Response(headers={"HX-Refresh": "true"})
+    if accent not in prefs.ACCENTS:
+        raise HTTPException(400, "Unknown accent")
+    if bg_mode not in ("solid", "gradient", "animated"):
+        raise HTTPException(400, "Unknown background mode")
+    if not (_HEX_RE.fullmatch(bg_from) and _HEX_RE.fullmatch(bg_to)):
+        raise HTTPException(400, "Colors must be #rrggbb")
+    angle = int(bg_angle) if bg_angle.strip().isdigit() else 160
+    prefs.set_theme({
+        "accent": accent,
+        "bg_mode": bg_mode,
+        "bg_from": bg_from,
+        "bg_to": bg_to,
+        "bg_angle": max(0, min(360, angle)),
+    })
+    return Response(headers={"HX-Refresh": "true"})
 
 
 @router.post("/settings/region")

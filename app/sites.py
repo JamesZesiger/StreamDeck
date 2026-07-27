@@ -77,6 +77,9 @@ def load_sites() -> list[dict]:
         base.pop("password", None)
         base.setdefault("tmdb_provider_id", None)
         base.setdefault("search_url", f"https://www.{base['base_domain']}")
+        # True = never resolve direct title links via Wikidata; every
+        # preloaded title deep-links to the site's search page instead.
+        base.setdefault("search_links_only", False)
         merged.append(base)
     if had_credentials:
         save_sites(merged)
@@ -133,7 +136,8 @@ def add_site(name: str, base_domain: str,
 
 
 def update_site(slug: str, name: str, base_domain: str,
-                tmdb_provider_id: int | None, search_url: str) -> dict:
+                tmdb_provider_id: int | None, search_url: str,
+                search_links_only: bool = False) -> dict:
     """Update a site in place. Slug is the identity and never changes."""
     sites = load_sites()
     for s in sites:
@@ -145,6 +149,7 @@ def update_site(slug: str, name: str, base_domain: str,
         s["tmdb_provider_id"] = tmdb_provider_id
         if search_url.strip():
             s["search_url"] = search_url.strip()
+        s["search_links_only"] = search_links_only
         save_sites(sites)
         return s
     raise ValueError("Unknown site.")
