@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -50,6 +51,9 @@ async def _init_db(retries: int = 10) -> None:
                 await conn.execute(text(
                     "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
                     "imdb_id VARCHAR(20)"))
+                await conn.execute(text(
+                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
+                    "unavailable_since TIMESTAMPTZ"))
                 # hide_mature is retired: the age rating cap replaces it.
                 await conn.execute(text(
                     "ALTER TABLE profiles DROP COLUMN IF EXISTS hide_mature"))
@@ -217,9 +221,65 @@ async def _backfill_deep_links() -> None:
         log.exception("Deep-link backfill failed")
 
 
+AVAILABILITY_REFRESH_SECONDS = 7 * 24 * 3600
+
+
+async def _refresh_availability() -> None:
+    """Re-check watch-provider data for the whole library: update each row's
+    regions and flag titles their service no longer streams anywhere (clear
+    the flag if a title comes back). Custom sites without a TMDB provider id
+    can't be checked and are left alone."""
+    try:
+        async with SessionLocal() as session:
+            site_by_slug = {s["slug"]: s for s in sites.load_sites()}
+            provider_by_service = {
+                svc.id: site_by_slug.get(svc.slug, {}).get("tmdb_provider_id")
+                for svc in (await session.execute(select(Service))).scalars()}
+            rows = [t for t in (await session.execute(select(Title))).scalars()
+                    if provider_by_service.get(t.service_id)]
+            by_key: dict[tuple, list[Title]] = {}
+            for t in rows:
+                by_key.setdefault((t.tmdb_id, t.media_type.value), []).append(t)
+
+            sem = asyncio.Semaphore(4)
+
+            async def fetch(tmdb_id: int, media_type: str) -> dict | None:
+                async with sem:
+                    try:
+                        return await tmdb.get_providers(tmdb_id, media_type)
+                    except Exception:
+                        return None  # TMDB blip: leave this title untouched
+
+            results = await asyncio.gather(
+                *(fetch(tid, mt) for tid, mt in by_key))
+            now = datetime.now(timezone.utc)
+            flagged = cleared = 0
+            for (key, titles), provider_regions in zip(by_key.items(), results):
+                if provider_regions is None:
+                    continue
+                for t in titles:
+                    t.regions = tmdb.regions_for_provider(
+                        provider_regions, provider_by_service[t.service_id])
+                    if t.regions:
+                        if t.unavailable_since is not None:
+                            cleared += 1
+                        t.unavailable_since = None
+                    elif t.unavailable_since is None:
+                        t.unavailable_since = now
+                        flagged += 1
+            await session.commit()
+            log.info("Availability refresh: %d titles checked, %d newly "
+                     "unavailable, %d back", len(rows), flagged, cleared)
+    except Exception:
+        log.exception("Availability refresh failed")
+
+
 async def _startup_backfills() -> None:
     await _backfill_details()
     await _backfill_deep_links()
+    while True:
+        await _refresh_availability()
+        await asyncio.sleep(AVAILABILITY_REFRESH_SECONDS)
 
 
 @asynccontextmanager

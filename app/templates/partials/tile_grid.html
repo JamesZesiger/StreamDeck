@@ -1,32 +1,57 @@
+{% macro tile(g) %}
+{% set t = g.primary %}
+<a href="/titles/{{ t.id }}" class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 transition">
+  {% if t.poster_url %}
+  <img src="{{ t.poster_url }}" alt="{{ t.title }}" class="w-full aspect-[2/3] object-cover group-hover:opacity-80 transition">
+  {% else %}
+  <div class="w-full aspect-[2/3] flex items-center justify-center p-3 text-center text-sm text-zinc-400">{{ t.title }}</div>
+  {% endif %}
+  <div class="absolute top-2 right-2 flex -space-x-2">
+    {% for s in g.services[:3] %}
+    <img src="{{ s.icon_path }}" alt="{{ s.name }}" title="{{ s.name }}"
+         class="w-7 h-7 rounded-md shadow-lg ring-1 ring-zinc-950">
+    {% endfor %}
+    {% if g.services|length > 3 %}
+    <span class="w-7 h-7 rounded-md bg-zinc-800 ring-1 ring-zinc-950 text-xs font-semibold flex items-center justify-center">+{{ g.services|length - 3 }}</span>
+    {% endif %}
+  </div>
+  <div class="absolute top-2 left-2 flex flex-col items-start gap-1">
+    {% if g.watched %}
+    <span class="bg-emerald-600 text-xs font-semibold px-2 py-0.5 rounded-full">✓</span>
+    {% endif %}
+    {% if g.unavailable %}
+    <span class="bg-amber-600 text-xs font-semibold px-2 py-0.5 rounded-full"
+          title="No longer streamed by any of your services">Unavailable</span>
+    {% endif %}
+  </div>
+  <div class="p-2">
+    <p class="text-sm font-medium truncate">{{ t.title }}</p>
+    <p class="text-xs text-zinc-500">{{ t.release_year or '' }}</p>
+  </div>
+</a>
+{% endmacro %}
+
+{# On full page loads (show_banners set by library.html) the promo banners
+   sit between tile rows instead of stacking at the top; htmx search/sort
+   swaps render tiles only. #}
+{% set break1, break2 = 12, 36 %}
+{% if show_banners and leaving %}{% include "partials/leaving_banner.html" %}{% endif %}
 {% if groups %}
 <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-  {% for g in groups %}
-  {% set t = g.primary %}
-  <a href="/titles/{{ t.id }}" class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 transition">
-    {% if t.poster_url %}
-    <img src="{{ t.poster_url }}" alt="{{ t.title }}" class="w-full aspect-[2/3] object-cover group-hover:opacity-80 transition">
-    {% else %}
-    <div class="w-full aspect-[2/3] flex items-center justify-center p-3 text-center text-sm text-zinc-400">{{ t.title }}</div>
-    {% endif %}
-    <div class="absolute top-2 right-2 flex -space-x-2">
-      {% for s in g.services[:3] %}
-      <img src="{{ s.icon_path }}" alt="{{ s.name }}" title="{{ s.name }}"
-           class="w-7 h-7 rounded-md shadow-lg ring-1 ring-zinc-950">
-      {% endfor %}
-      {% if g.services|length > 3 %}
-      <span class="w-7 h-7 rounded-md bg-zinc-800 ring-1 ring-zinc-950 text-xs font-semibold flex items-center justify-center">+{{ g.services|length - 3 }}</span>
-      {% endif %}
-    </div>
-    {% if g.watched %}
-    <span class="absolute top-2 left-2 bg-emerald-600 text-xs font-semibold px-2 py-0.5 rounded-full">✓</span>
-    {% endif %}
-    <div class="p-2">
-      <p class="text-sm font-medium truncate">{{ t.title }}</p>
-      <p class="text-xs text-zinc-500">{{ t.release_year or '' }}</p>
-    </div>
-  </a>
-  {% endfor %}
+  {% for g in groups[:break1] %}{{ tile(g) }}{% endfor %}
 </div>
+{% if show_banners %}{% include "partials/discover_banner.html" %}{% endif %}
+{% if groups|length > break1 %}
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 {{ 'mt-4' if not show_banners }}">
+  {% for g in groups[break1:break2] %}{{ tile(g) }}{% endfor %}
+</div>
+{% endif %}
+{% if show_banners and upcoming %}{% include "partials/upcoming_banner.html" %}{% endif %}
+{% if groups|length > break2 %}
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 {{ 'mt-4' if not (show_banners and upcoming) }}">
+  {% for g in groups[break2:] %}{{ tile(g) }}{% endfor %}
+</div>
+{% endif %}
 {% elif q %}
 <div class="text-center py-24 text-zinc-500">
   <p class="text-lg">No titles match “{{ q }}”.</p>
@@ -36,4 +61,8 @@
   <p class="text-lg mb-3">Your library is empty.</p>
   <a href="/add" class="text-red-400 hover:text-red-300 font-semibold">Add your first title →</a>
 </div>
+{% if show_banners %}
+{% include "partials/discover_banner.html" %}
+{% if upcoming %}{% include "partials/upcoming_banner.html" %}{% endif %}
+{% endif %}
 {% endif %}

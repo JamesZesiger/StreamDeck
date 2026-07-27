@@ -1,5 +1,7 @@
 """Minimal async TMDB client. Only metadata comes from here — never from streaming sites."""
 
+from datetime import date
+
 import httpx
 
 import prefs
@@ -115,6 +117,26 @@ async def discover_by_provider(provider_id: int, media_type: str,
     return ids if limit is None else ids[:limit]
 
 
+async def get_recommendations(tmdb_id: int, media_type: str) -> list[dict]:
+    """TMDB's 'people also liked' list for one title (first page only) —
+    lightweight candidates for the Discover page; details come later."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{BASE}/{media_type}/{tmdb_id}/recommendations",
+            params={"api_key": settings.tmdb_api_key,
+                    "language": prefs.get_language()},
+        )
+        r.raise_for_status()
+    out = []
+    for item in r.json().get("results", []):
+        mt = item.get("media_type") or media_type
+        if mt not in ("movie", "tv"):
+            continue
+        out.append({"tmdb_id": item["id"], "media_type": mt,
+                    "popularity": item.get("popularity") or 0.0})
+    return out
+
+
 async def get_collection(collection_id: int) -> dict:
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(
@@ -187,16 +209,33 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "popularity": d.get("popularity"),
         "certification": certification,
         "imdb_id": (d.get("external_ids") or {}).get("imdb_id") or "",
-        # {country code: {provider ids streaming it there}} — flatrate/free/ads
-        # offers only (rent/buy isn't "watchable on the service").
-        "provider_regions": {
-            country: ids
-            for country, offers in (d.get("watch/providers", {}).get("results") or {}).items()
-            if (ids := {p["provider_id"]
-                        for kind in ("flatrate", "free", "ads")
-                        for p in offers.get(kind, [])})
-        },
+        "provider_regions": _provider_regions(
+            d.get("watch/providers", {}).get("results")),
     }
+
+
+def _provider_regions(results: dict | None) -> dict:
+    """{country code: {provider ids streaming it there}} — flatrate/free/ads
+    offers only (rent/buy isn't "watchable on the service")."""
+    return {
+        country: ids
+        for country, offers in (results or {}).items()
+        if (ids := {p["provider_id"]
+                    for kind in ("flatrate", "free", "ads")
+                    for p in offers.get(kind, [])})
+    }
+
+
+async def get_providers(tmdb_id: int, media_type: str) -> dict:
+    """Just the watch-provider map for a title — the availability refresh
+    re-checks the whole library, so this stays one cheap call per title."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{BASE}/{media_type}/{tmdb_id}/watch/providers",
+            params={"api_key": settings.tmdb_api_key},
+        )
+        r.raise_for_status()
+    return _provider_regions(r.json().get("results"))
 
 
 def regions_for_provider(provider_regions: dict, provider_id: int | None) -> str:
@@ -205,6 +244,70 @@ def regions_for_provider(provider_regions: dict, provider_id: int | None) -> str
         return ""
     return ", ".join(sorted(
         c for c, ids in provider_regions.items() if provider_id in ids))
+
+
+async def get_upcoming(limit: int = 8) -> list[dict]:
+    """Upcoming theatrical movies (region-aware) and soon-to-air shows,
+    soonest first — for the library's Coming Soon banner. Only titles with a
+    backdrop make the cut; they're hero slides."""
+    region = prefs.get_region() or "US"
+    lang = prefs.get_language()
+    today = date.today().isoformat()
+    async with httpx.AsyncClient(timeout=15) as client:
+        r_movies = await client.get(
+            f"{BASE}/movie/upcoming",
+            params={"api_key": settings.tmdb_api_key, "language": lang,
+                    "region": region})
+        r_movies.raise_for_status()
+        r_tv = await client.get(
+            f"{BASE}/discover/tv",
+            params={"api_key": settings.tmdb_api_key, "language": lang,
+                    "first_air_date.gte": today,
+                    "sort_by": "popularity.desc"})
+        r_tv.raise_for_status()
+    items = []
+    for mt, results, date_field, name_field in (
+            ("movie", r_movies.json().get("results", []), "release_date", "title"),
+            ("tv", r_tv.json().get("results", []), "first_air_date", "name")):
+        for item in results:
+            when = item.get(date_field) or ""
+            if when < today or not item.get("backdrop_path") or item.get("adult"):
+                continue
+            items.append({
+                "tmdb_id": item["id"],
+                "media_type": mt,
+                "title": item.get(name_field) or "",
+                "overview": item.get("overview") or "",
+                "backdrop_url": _img(item["backdrop_path"], "w1280"),
+                "release_date": when,
+                "popularity": item.get("popularity") or 0.0,
+            })
+    # Soonest first; popularity breaks same-day ties so slides stay recognizable.
+    items.sort(key=lambda i: (i["release_date"], -i["popularity"]))
+    return items[:limit]
+
+
+async def get_trailer(tmdb_id: int, media_type: str) -> dict | None:
+    """Best YouTube trailer for a title ({key, name}), or None. Prefers
+    official trailers over teasers; asks in the app language but falls back
+    to English/untagged uploads so non-English setups still get one."""
+    lang = prefs.get_language()
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{BASE}/{media_type}/{tmdb_id}/videos",
+            params={"api_key": settings.tmdb_api_key, "language": lang,
+                    "include_video_language": f"{lang.split('-')[0]},en,null"},
+        )
+        r.raise_for_status()
+    videos = [v for v in r.json().get("results", [])
+              if v.get("site") == "YouTube" and v.get("key")
+              and v.get("type") in ("Trailer", "Teaser")]
+    if not videos:
+        return None
+    best = max(videos, key=lambda v: (v.get("type") == "Trailer",
+                                      bool(v.get("official")),
+                                      v.get("published_at") or ""))
+    return {"key": best["key"], "name": best.get("name") or "Trailer"}
 
 
 async def get_imdb_id(tmdb_id: int, media_type: str) -> str:

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Discover — StreamDeck{% endblock %}
+{% block content %}
+<div class="flex items-center gap-4 mb-1">
+  <h1 class="text-2xl font-bold flex-1">Discover</h1>
+  <a href="/discover?refresh=1"
+     class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-1.5 text-sm">Refresh</a>
+</div>
+<p class="text-sm text-zinc-500 mb-6">
+  {% if seed_titles %}
+  Because you watched {{ seed_titles[:3]|join(', ') }}{{ '…' if seed_titles|length > 3 }} —
+  on your services, not yet in your library.
+  {% else %}
+  Popular right now on your services — not yet in your library. Recommendations get
+  personal once you mark titles watched.
+  {% endif %}
+</p>
+
+{% if cards %}
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+  {% for c in cards %}
+  <div class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 transition flex flex-col">
+    {% if c.poster_url %}
+    <img src="{{ c.poster_url }}" alt="{{ c.title }}" title="{{ c.overview }}"
+         class="w-full aspect-[2/3] object-cover">
+    {% else %}
+    <div class="w-full aspect-[2/3] flex items-center justify-center p-3 text-center text-sm text-zinc-400">{{ c.title }}</div>
+    {% endif %}
+    <div class="absolute top-2 right-2 flex -space-x-2">
+      {% for s in c.services[:3] %}
+      <img src="{{ s.icon_path }}" alt="{{ s.name }}" title="{{ s.name }}"
+           class="w-7 h-7 rounded-md shadow-lg ring-1 ring-zinc-950">
+      {% endfor %}
+    </div>
+    <div class="p-2 flex-1 flex flex-col">
+      <p class="text-sm font-medium truncate">{{ c.title }}</p>
+      <p class="text-xs text-zinc-500 mb-1.5">{{ c.year or '' }}{{ ' · ★ %.1f'|format(c.rating) if c.rating }}</p>
+      <div id="add-{{ c.media_type }}-{{ c.tmdb_id }}" class="mt-auto flex flex-wrap gap-1.5">
+        {% for s in c.services %}
+        <button hx-post="/api/discover/add"
+                hx-vals='{"tmdb_id": {{ c.tmdb_id }}, "media_type": "{{ c.media_type }}", "service_id": {{ s.id }}}'
+                hx-target="#add-{{ c.media_type }}-{{ c.tmdb_id }}" hx-swap="innerHTML"
+                hx-disabled-elt="this" title="Add to {{ s.name }}"
+                class="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 px-2 py-1 text-xs">
+          <img src="{{ s.icon_path }}" alt="" class="w-4 h-4 rounded-sm">+ Add</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-24 text-zinc-500">
+  <p class="text-lg mb-3">Nothing to recommend yet.</p>
+  <p class="text-sm">Discover needs at least one site with a TMDB provider ID
+    (see <a href="/sites" class="text-red-400 hover:text-red-300">Sites</a>) and TMDB to be reachable.</p>
+</div>
+{% endif %}
+{% endblock %}

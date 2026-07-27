@@ -1,0 +1,26 @@
+<div id="upcoming-carousel" class="relative rounded-2xl overflow-hidden my-6 h-52 sm:h-60 bg-zinc-900 ring-1 ring-zinc-800">
+  {% for u in upcoming %}
+  <div class="carousel-slide absolute inset-0 transition-opacity duration-700 {{ '' if loop.first else 'opacity-0 pointer-events-none' }}">
+    <img src="{{ u.backdrop_url }}" alt="" class="w-full h-full object-cover"
+         {% if not loop.first %}loading="lazy"{% endif %}>
+    <div class="absolute inset-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/60 to-zinc-950/10"></div>
+    <div class="absolute inset-0 flex flex-col justify-center px-6 sm:px-10 max-w-xl">
+      <p class="text-xs uppercase tracking-wide text-red-400 font-semibold mb-1">Coming soon</p>
+      <h2 class="text-xl sm:text-2xl font-bold mb-2">{{ u.title }}</h2>
+      <div class="flex items-center gap-2 mb-2">
+        <span class="rounded-full bg-red-600 text-xs font-semibold px-2.5 py-0.5">{{ u.date_label }}</span>
+        <span class="text-xs text-zinc-400">{{ 'Series' if u.media_type == 'tv' else 'Movie' }}</span>
+      </div>
+      {% if u.overview %}
+      <p class="text-sm text-zinc-300 line-clamp-2 mb-0">{{ u.overview }}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <div class="absolute bottom-3 right-4 flex gap-2 z-10">
+    {% for u in upcoming %}
+    <button type="button" title="{{ u.title }}"
+            class="carousel-dot w-2.5 h-2.5 rounded-full transition-colors {{ 'bg-zinc-100' if loop.first else 'bg-zinc-500/60 hover:bg-zinc-400' }}"></button>
+    {% endfor %}
+  </div>
+</div>
