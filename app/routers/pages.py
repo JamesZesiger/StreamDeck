@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -436,6 +437,13 @@ async def discover(request: Request, refresh: str | None = None,
         "seed_titles": seed_titles,
         "active_profile": profile,
     })
+
+
+@router.get("/manifest.json")
+async def manifest():
+    """PWA manifest at the root so its scope ("/") covers the whole app."""
+    return FileResponse("static/manifest.json",
+                        media_type="application/manifest+json")
 
 
 @router.get("/profiles/menu")
