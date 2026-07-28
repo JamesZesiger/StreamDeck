@@ -31,7 +31,7 @@ Prerequisites: Docker with the Compose plugin, and a free TMDB API key
 ([themoviedb.org](https://www.themoviedb.org/settings/api)).
 
 ```bash
-git clone <this repo> && cd personalResearch
+git clone <this repo> && cd streamDeck
 
 cp .env.example .env
 # Edit .env: set TMDB_API_KEY and a real POSTGRES_PASSWORD.
