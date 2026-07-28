@@ -2,10 +2,14 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}StreamDeck{% endblock %}</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#09090b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="StreamDeck">
   <link rel="icon" type="image/png" href="/static/icons/app-192.png">
   <link rel="apple-touch-icon" href="/static/icons/app-192.png">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -95,6 +99,9 @@
         document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'));
       }
     });
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
   </script>
 </body>
 </html>

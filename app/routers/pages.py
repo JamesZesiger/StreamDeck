@@ -446,6 +446,13 @@ async def manifest():
                         media_type="application/manifest+json")
 
 
+@router.get("/sw.js")
+async def service_worker():
+    """Service worker at the root so its scope ("/") covers the whole app."""
+    return FileResponse("static/sw.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
 @router.get("/profiles/menu")
 async def profiles_menu(request: Request, session: AsyncSession = Depends(get_session)):
     profile = await active_profile(request, session)

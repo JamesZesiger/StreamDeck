@@ -115,3 +115,8 @@ churns more.
 - **M2** — deep-link playback, watched tracking.
 - **M3** — direct deep-link resolution via TMDB/JustWatch watch-provider data.
 - **M4** — polish: credentials helper, filters, README.
+- **M5** — PWA delivery: add a web-app manifest (name, icons, `display: standalone`) and a
+  minimal service worker so the app installs from the browser ("Add to Home Screen") as a
+  full-screen home-screen app. Requires a secure context — served over Tailscale HTTPS
+  (MagicDNS + `tailscale cert`/`serve`) per the home-network design doc
+  (`../Docs/HOME-NETWORK-DESIGN.md`, Phase 2/3).
