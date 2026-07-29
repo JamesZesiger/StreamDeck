@@ -44,6 +44,24 @@ service once in the same browser — deep links then open already authenticated.
 
 To stop: `docker compose down` (add `-v` to also delete the library database).
 
+## Keyboard controls
+
+Press `?` on any page for this overlay. Shortcuts never fire while typing in a field.
+
+| Where | Key | Action |
+|---|---|---|
+| Library | `←` `→` `↑` `↓` | Move between tiles (TV-remote friendly) |
+| Library | `Enter` | Open the selected title |
+| Library | `/` | Search the library |
+| Library | `f` | Toggle the filters & search drawer |
+| Library | `a` | Add a title |
+| Title page | `p` | Play on the default service |
+| Title page | `t` | Play the trailer |
+| Title page | `w` | Toggle watched |
+| Title page | `l` | Toggle my list |
+| Title page | `Backspace` | Back to the library |
+| Anywhere | `Esc` | Close menus & overlays |
+
 ## Development
 
 Tests live in [`tests/`](tests/) (pytest, no database needed) and linting is

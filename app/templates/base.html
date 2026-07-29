@@ -84,16 +84,70 @@
   <main class="{% block main_class %}max-w-7xl mx-auto px-4 py-6{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <div id="kbd-help" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+       onclick="if (event.target === this) sdToggleHelp(false)">
+    <div class="w-full max-w-md rounded-2xl bg-zinc-900 ring-1 ring-zinc-700 shadow-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">Keyboard shortcuts</h2>
+        <button onclick="sdToggleHelp(false)" class="text-zinc-400 hover:text-zinc-100 text-sm">✕ Close</button>
+      </div>
+      {% macro kbd(k) %}<kbd class="px-1.5 py-0.5 rounded bg-zinc-800 ring-1 ring-zinc-700 text-xs font-mono">{{ k }}</kbd>{% endmacro %}
+      <div class="space-y-4 text-sm text-zinc-300">
+        <div>
+          <p class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Library</p>
+          <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
+            <span>{{ kbd('←') }} {{ kbd('→') }} {{ kbd('↑') }} {{ kbd('↓') }}</span><span>Move between tiles</span>
+            <span>{{ kbd('Enter') }}</span><span>Open selected title</span>
+            <span>{{ kbd('/') }}</span><span>Search library</span>
+            <span>{{ kbd('f') }}</span><span>Filters &amp; search drawer</span>
+            <span>{{ kbd('a') }}</span><span>Add a title</span>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Title page</p>
+          <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
+            <span>{{ kbd('p') }}</span><span>Play (default service)</span>
+            <span>{{ kbd('t') }}</span><span>Trailer</span>
+            <span>{{ kbd('w') }}</span><span>Toggle watched</span>
+            <span>{{ kbd('l') }}</span><span>Toggle my list</span>
+            <span>{{ kbd('⌫') }}</span><span>Back to library</span>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Anywhere</p>
+          <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
+            <span>{{ kbd('?') }}</span><span>This overlay</span>
+            <span>{{ kbd('Esc') }}</span><span>Close menus &amp; overlays</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <script>
     document.addEventListener('click', (e) => {
       document.querySelectorAll('details[open]').forEach((d) => {
         if (!d.contains(e.target)) d.removeAttribute('open');
       });
     });
+    // Shared guard for all keyboard shortcuts: never fire while typing or
+    // when a modifier chord (browser/OS shortcut) is held.
+    function sdTyping(e) {
+      return e.ctrlKey || e.altKey || e.metaKey ||
+        (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]'));
+    }
+    function sdToggleHelp(show) {
+      const el = document.getElementById('kbd-help');
+      if (show === undefined) show = el.classList.contains('hidden');
+      el.classList.toggle('hidden', !show);
+    }
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'));
+        sdToggleHelp(false);
+        return;
       }
+      if (sdTyping(e)) return;
+      if (e.key === '?') { e.preventDefault(); sdToggleHelp(); }
     });
   </script>
 </body>
