@@ -12,7 +12,7 @@ import tmdb
 import wikidata
 from db import SessionLocal, engine
 from models import Base, Service, Title
-from routers import api, pages
+from routers import api, pages, roku_api
 
 log = logging.getLogger(__name__)
 
@@ -294,6 +294,7 @@ app = FastAPI(title="StreamDeck", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(pages.router)
 app.include_router(api.router)
+app.include_router(roku_api.router)
 
 
 @app.get("/healthz")
