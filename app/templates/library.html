@@ -150,8 +150,75 @@
     drawer.classList.toggle('hidden', !show);
   }
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') toggleLibraryDrawer(false);
+    if (e.key === 'Escape') {
+      toggleLibraryDrawer(false);
+      toggleSelectMode(false);
+    }
   });
+  // Select mode: tile clicks toggle selection instead of navigating; the
+  // bottom bar applies one action to everything selected in a single call.
+  let selectMode = false;
+  const selected = new Set();
+  function paintTile(tile, on) {
+    tile.classList.toggle('ring-1', !on);
+    tile.classList.toggle('ring-zinc-800', !on);
+    tile.classList.toggle('ring-2', on);
+    tile.classList.toggle('ring-red-500', on);
+    const badge = tile.querySelector('.select-badge');
+    badge.classList.toggle('hidden', !on);
+    badge.classList.toggle('flex', on);
+  }
+  function updateSelectCount() {
+    document.getElementById('select-count').textContent = selected.size + ' selected';
+  }
+  function toggleSelectMode(on) {
+    if (on === undefined) on = !selectMode;
+    if (on === selectMode) return;
+    selectMode = on;
+    document.getElementById('select-bar').classList.toggle('hidden', !on);
+    const btn = document.getElementById('select-mode-btn');
+    if (btn) btn.textContent = on ? 'Done' : 'Select';
+    if (!on) {
+      selected.clear();
+      document.querySelectorAll('#tile-grid a[data-title-id]').forEach((t) => paintTile(t, false));
+    }
+    updateSelectCount();
+  }
+  function selectAllTiles() {
+    document.querySelectorAll('#tile-grid a[data-title-id]').forEach((t) => {
+      selected.add(t.dataset.titleId);
+      paintTile(t, true);
+    });
+    updateSelectCount();
+  }
+  document.getElementById('tile-grid').addEventListener('click', (e) => {
+    if (!selectMode) return;
+    const tile = e.target.closest('a[data-title-id]');
+    if (!tile) return;
+    e.preventDefault();
+    const id = tile.dataset.titleId;
+    if (selected.has(id)) selected.delete(id); else selected.add(id);
+    paintTile(tile, selected.has(id));
+    updateSelectCount();
+  });
+  // Search/sort swap the grid's tiles out from under a selection in
+  // progress; repaint whatever selected tiles are still shown.
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    if (e.target.id !== 'tile-grid') return;
+    document.querySelectorAll('#tile-grid a[data-title-id]').forEach((t) =>
+      paintTile(t, selected.has(t.dataset.titleId)));
+  });
+  async function bulkAction(action) {
+    if (!selected.size) return;
+    if (action === 'remove' &&
+        !confirm('Remove ' + selected.size + ' title(s) (all providers) from your library?')) return;
+    const r = await fetch('/api/titles/bulk', {
+      method: 'POST',
+      body: new URLSearchParams({ action, ids: [...selected].join(',') }),
+    });
+    if (r.ok) window.location.reload();
+    else alert(r.status === 403 ? 'PIN required — unlock in Settings first.' : 'Something went wrong.');
+  }
   // Keyboard controls: arrows move tile focus (Enter opens — tiles are
   // anchors), '/' searches, 'f' toggles filters, 'a' adds a title.
   function nearestVertical(tiles, from, dir) {
@@ -181,6 +248,7 @@
     }
     if (e.key === 'f') { toggleLibraryDrawer(); return; }
     if (e.key === 'a') { window.location.href = '/add'; return; }
+    if (e.key === 's') { toggleSelectMode(); return; }
     if (!e.key.startsWith('Arrow') || e.target.closest('#library-drawer')) return;
     const tiles = [...document.querySelectorAll('#tile-grid a[href^="/titles/"]')];
     if (!tiles.length) return;
@@ -277,9 +345,31 @@
 </div>
 {% endif %}
 
+{% if groups %}
+<div class="flex items-center justify-end mb-3">
+  <button type="button" id="select-mode-btn" onclick="toggleSelectMode()"
+          class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300">Select</button>
+</div>
+{% endif %}
 {% set show_banners = true %}
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}
+</div>
+
+<div id="select-bar" class="hidden fixed inset-x-0 bottom-0 z-40 bg-zinc-900/95 backdrop-blur border-t border-zinc-800">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-2">
+    <span id="select-count" class="text-sm text-zinc-300 mr-auto">0 selected</span>
+    <button type="button" onclick="selectAllTiles()"
+            class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm">Select all</button>
+    <button type="button" onclick="bulkAction('watched')"
+            class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm">Mark watched</button>
+    <button type="button" onclick="bulkAction('unwatched')"
+            class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm">Mark unwatched</button>
+    <button type="button" onclick="bulkAction('remove')"
+            class="rounded-lg bg-zinc-900 ring-1 ring-zinc-700 hover:bg-red-900/60 px-3 py-1.5 text-sm text-red-400">Remove</button>
+    <button type="button" onclick="toggleSelectMode(false)"
+            class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-400">Cancel</button>
+  </div>
 </div>
 
 <script>

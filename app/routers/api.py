@@ -424,6 +424,45 @@ async def delete_title(request: Request, title_id: int,
     return Response(headers={"HX-Redirect": "/"})
 
 
+@router.post("/titles/bulk")
+async def bulk_titles(request: Request, action: str = Form(...),
+                      ids: str = Form(...),
+                      session: AsyncSession = Depends(get_session)):
+    """Apply one action to many titles at once (library select mode)."""
+    if action not in ("watched", "unwatched", "remove"):
+        raise HTTPException(400, "Unknown action")
+    try:
+        title_ids = [int(i) for i in ids.split(",") if i.strip()]
+    except ValueError as exc:
+        raise HTTPException(400, "Bad ids") from exc
+    if not title_ids:
+        raise HTTPException(400, "No titles selected")
+    if action == "remove":
+        profile = await _unlocked_profile(request, session)
+    else:
+        profile = await active_profile(request, session)
+    titles = (await session.execute(
+        select(Title).where(Title.id.in_(title_ids)))).scalars().all()
+    # Combined titles: each key covers every provider's row for that title.
+    keys = {(t.tmdb_id, t.media_type) for t in titles}
+    if action == "remove":
+        for tmdb_id, media_type in keys:
+            await session.execute(delete(Title).where(
+                Title.tmdb_id == tmdb_id, Title.media_type == media_type))
+    else:
+        watches = {(w.tmdb_id, w.media_type): w for w in (await session.execute(
+            select(ProfileWatch).where(ProfileWatch.profile_id == profile.id)
+        )).scalars()}
+        for key in keys:
+            if action == "watched" and key not in watches:
+                session.add(ProfileWatch(profile_id=profile.id,
+                                         tmdb_id=key[0], media_type=key[1]))
+            elif action == "unwatched" and key in watches:
+                await session.delete(watches[key])
+    await session.commit()
+    return Response(status_code=204)
+
+
 def _msg(text: str, tone: str = "amber") -> Response:
     return Response(
         content=f'<p class="text-sm text-{tone}-400">{html.escape(text)}</p>',
