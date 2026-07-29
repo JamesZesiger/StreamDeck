@@ -1,0 +1,35 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pylint.main]
+# App modules are flat scripts under app/, imported with app/ as cwd.
+init-hook = 'import sys; sys.path.insert(0, "app")'
+ignore-paths = ["^\\.venv/.*"]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.basic]
+# Short names used throughout for TMDB detail dicts, titles, and rows;
+# movie/tv are MediaType enum members whose values live in the database.
+good-names = ["d", "t", "p", "s", "e", "f", "i", "r", "v", "db", "log", "ts",
+              "movie", "tv"]
+
+[tool.pylint."messages control"]
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "broad-exception-caught",   # deliberate: background jobs skip bad items and keep going
+    "global-statement",         # prefs' single-process caches
+    "protected-access",         # module-private caches shared between routers; tests poke internals
+    "duplicate-code",           # Title(...) construction repeats by design across add paths
+    "too-many-arguments",       # FastAPI route signatures take one param per form field
+    "too-many-positional-arguments",
+    "too-many-locals",
+    "too-many-statements",
+    "too-many-branches",
+    "too-few-public-methods",
+    "import-outside-toplevel",  # late imports break router/pages cycles on purpose
+    "not-callable",             # false positive on SQLAlchemy's func.now()/func.count()
+]

@@ -6,7 +6,9 @@ have no profile context) and the parent PIN hash for kid-mode locks.
 """
 
 import hashlib
+import hmac
 import json
+import secrets
 from pathlib import Path
 
 from config import settings
@@ -93,7 +95,7 @@ def get_language() -> str:
     global _language
     if _language is None:
         try:
-            _language = json.loads(_path().read_text()).get(
+            _language = json.loads(_path().read_text(encoding="utf-8")).get(
                 "language", DEFAULT_LANGUAGE)
         except (OSError, ValueError):
             _language = DEFAULT_LANGUAGE
@@ -104,12 +106,12 @@ def _save(key: str, value) -> None:
     p = _path()
     p.parent.mkdir(parents=True, exist_ok=True)
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
     data[key] = value
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2))
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     tmp.replace(p)
 
 
@@ -123,7 +125,7 @@ def get_region() -> str:
     global _region
     if _region is None:
         try:
-            _region = json.loads(_path().read_text()).get(
+            _region = json.loads(_path().read_text(encoding="utf-8")).get(
                 "region", DEFAULT_REGION)
         except (OSError, ValueError):
             _region = DEFAULT_REGION
@@ -140,7 +142,7 @@ def get_theme() -> dict:
     global _theme
     if _theme is None:
         try:
-            stored = json.loads(_path().read_text()).get("theme", {})
+            stored = json.loads(_path().read_text(encoding="utf-8")).get("theme", {})
         except (OSError, ValueError):
             stored = {}
         theme = dict(DEFAULT_THEME)
@@ -157,16 +159,56 @@ def set_theme(theme: dict) -> None:
     _theme = None  # re-merge with defaults on next read
 
 
+# PBKDF2-HMAC-SHA256 iteration count, per current OWASP guidance.
+PIN_ITERATIONS = 600_000
+
+
 def hash_pin(pin: str) -> str:
-    return hashlib.sha256(pin.strip().encode()).hexdigest()
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pin.strip().encode(),
+                                 bytes.fromhex(salt), PIN_ITERATIONS)
+    return f"pbkdf2_sha256${PIN_ITERATIONS}${salt}${digest.hex()}"
+
+
+def is_legacy_pin_hash(stored: str) -> bool:
+    """Hashes written before salting was added: bare sha256 hex."""
+    return bool(stored) and "$" not in stored
+
+
+def verify_pin(pin: str, stored: str) -> bool:
+    if not stored:
+        return False
+    if is_legacy_pin_hash(stored):
+        legacy = hashlib.sha256(pin.strip().encode()).hexdigest()
+        return hmac.compare_digest(legacy, stored)
+    try:
+        _, iterations, salt, digest = stored.split("$")
+        computed = hashlib.pbkdf2_hmac("sha256", pin.strip().encode(),
+                                       bytes.fromhex(salt), int(iterations))
+    except ValueError:
+        return False
+    return hmac.compare_digest(computed.hex(), digest)
 
 
 def get_pin_hash() -> str:
     try:
-        return json.loads(_path().read_text()).get("pin_hash", "")
+        return json.loads(_path().read_text(encoding="utf-8")).get("pin_hash", "")
     except (OSError, ValueError):
         return ""
 
 
 def set_pin(pin: str) -> None:
     _save("pin_hash", hash_pin(pin))
+
+
+def get_secret_key() -> str:
+    """Key for signing short-lived tokens (the PIN-unlock cookie). Generated
+    once and persisted so unlocks survive an app restart."""
+    try:
+        key = json.loads(_path().read_text(encoding="utf-8")).get("secret_key", "")
+    except (OSError, ValueError):
+        key = ""
+    if not key:
+        key = secrets.token_hex(32)
+        _save("secret_key", key)
+    return key

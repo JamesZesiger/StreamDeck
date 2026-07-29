@@ -65,14 +65,14 @@ async def search_multi(query: str) -> list[dict]:
     for item in r.json().get("results", []):
         if item.get("media_type") not in ("movie", "tv"):
             continue
-        date = item.get("release_date") or item.get("first_air_date") or ""
+        released = item.get("release_date") or item.get("first_air_date") or ""
         results.append({
             "tmdb_id": item["id"],
             "media_type": item["media_type"],
             "title": item.get("title") or item.get("name") or "",
             "overview": item.get("overview") or "",
             "poster_url": _img(item.get("poster_path"), "w342"),
-            "year": int(date[:4]) if len(date) >= 4 and date[:4].isdigit() else None,
+            "year": int(released[:4]) if len(released) >= 4 and released[:4].isdigit() else None,
         })
     return results
 
@@ -176,7 +176,7 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
     certification = ""
     if media_type == "movie":
         runtime = d.get("runtime")
-        date = d.get("release_date") or ""
+        released = d.get("release_date") or ""
         title = d.get("title") or ""
         for entry in d.get("release_dates", {}).get("results", []):
             if entry.get("iso_3166_1") == "US":
@@ -187,7 +187,7 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
     else:
         runtimes = d.get("episode_run_time") or []
         runtime = runtimes[0] if runtimes else None
-        date = d.get("first_air_date") or ""
+        released = d.get("first_air_date") or ""
         title = d.get("name") or ""
         for entry in d.get("content_ratings", {}).get("results", []):
             if entry.get("iso_3166_1") == "US":
@@ -201,7 +201,8 @@ async def get_details(tmdb_id: int, media_type: str) -> dict:
         "poster_url": _img(d.get("poster_path"), "w500"),
         "backdrop_url": _img(d.get("backdrop_path"), "w1280"),
         "runtime_minutes": runtime,
-        "release_year": int(date[:4]) if len(date) >= 4 and date[:4].isdigit() else None,
+        "release_year": (int(released[:4])
+                         if len(released) >= 4 and released[:4].isdigit() else None),
         "genres": ", ".join(g["name"] for g in d.get("genres", [])),
         "mature": bool(d.get("adult")),
         "rating": d.get("vote_average"),

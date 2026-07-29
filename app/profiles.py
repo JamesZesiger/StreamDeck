@@ -2,6 +2,10 @@
 profile id lives in a cookie; the library is shared between profiles, watch
 state and watch lists are not."""
 
+import hashlib
+import hmac
+import time
+
 from fastapi import Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +32,9 @@ RATING_CAPS = [
     (3, "Mature (R, TV-MA)"),
 ]
 
-# Short-lived proof that the parent PIN was entered; value is the PIN hash.
+# Short-lived proof that the parent PIN was entered; value is an HMAC-signed
+# expiry token ("<expires>.<signature>"). Signing over the stored PIN hash
+# means changing the PIN invalidates every outstanding unlock.
 PIN_COOKIE = "pin_ok"
 PIN_UNLOCK_SECONDS = 300
 
@@ -55,9 +61,23 @@ def title_allowed(profile: Profile, title: Title) -> bool:
     return level is not None and level <= profile.max_rating_level
 
 
+def _pin_signature(expires: str) -> str:
+    key = (prefs.get_secret_key() + prefs.get_pin_hash()).encode()
+    return hmac.new(key, expires.encode(), hashlib.sha256).hexdigest()
+
+
+def make_pin_token() -> str:
+    expires = str(int(time.time()) + PIN_UNLOCK_SECONDS)
+    return f"{expires}.{_pin_signature(expires)}"
+
+
 def pin_unlocked(request: Request) -> bool:
-    stored = prefs.get_pin_hash()
-    return bool(stored) and request.cookies.get(PIN_COOKIE) == stored
+    if not prefs.get_pin_hash():
+        return False
+    expires, _, signature = request.cookies.get(PIN_COOKIE, "").partition(".")
+    if not (expires.isdigit() and signature) or int(expires) < time.time():
+        return False
+    return hmac.compare_digest(signature, _pin_signature(expires))
 
 
 def settings_locked(profile: Profile, request: Request) -> bool:
@@ -80,5 +100,5 @@ async def active_profile(request: Request, session: AsyncSession) -> Profile:
 
 
 def set_profile_cookie(response: Response, profile_id: int) -> None:
-    response.set_cookie(COOKIE, str(profile_id),
-                        max_age=COOKIE_MAX_AGE, samesite="lax")
+    response.set_cookie(COOKIE, str(profile_id), max_age=COOKIE_MAX_AGE,
+                        httponly=True, samesite="lax")

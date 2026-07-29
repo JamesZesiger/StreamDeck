@@ -4,7 +4,6 @@ import logging
 import re
 from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
@@ -15,12 +14,13 @@ import sites
 import tmdb
 import wikidata
 from db import SessionLocal, get_session
-
-log = logging.getLogger(__name__)
 from models import (MediaType, Profile, ProfileEpisodeWatch, ProfileListItem,
                     ProfileWatch, Service, Title)
 from profiles import (PIN_COOKIE, PIN_UNLOCK_SECONDS, RATING_CAPS,
-                      active_profile, set_profile_cookie, settings_locked)
+                      active_profile, make_pin_token, set_profile_cookie,
+                      settings_locked)
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 templates = Jinja2Templates(directory="templates")
@@ -49,13 +49,19 @@ async def resolve_url(
 
 @router.post("/titles")
 async def create_title(
-    request: Request,
     url: str = Form(...),
     service_id: int = Form(...),
     tmdb_id: int = Form(...),
     media_type: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
+    # The form fields are server-rendered, so bad values here mean a forged
+    # request. deep_link is rendered as an href later — never store a URL
+    # whose scheme could execute on click.
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(400, "Unknown media type")
+    if not sites.is_http_url(url):
+        raise HTTPException(400, "Deep link must be an http(s) URL")
     service = await session.get(Service, service_id)
     if not service:
         raise HTTPException(400, "Unknown service")
@@ -279,10 +285,13 @@ async def _unlocked_profile(request: Request, session: AsyncSession) -> Profile:
 @router.post("/pin/unlock")
 async def pin_unlock(pin: str = Form(...)):
     stored = prefs.get_pin_hash()
-    if not stored or prefs.hash_pin(pin) != stored:
+    if not stored or not prefs.verify_pin(pin, stored):
         return _msg("Wrong PIN.")
+    if prefs.is_legacy_pin_hash(stored):
+        prefs.set_pin(pin)  # upgrade pre-salting hashes on first entry
     response = Response(headers={"HX-Refresh": "true"})
-    response.set_cookie(PIN_COOKIE, stored, max_age=PIN_UNLOCK_SECONDS,
+    response.set_cookie(PIN_COOKIE, make_pin_token(),
+                        max_age=PIN_UNLOCK_SECONDS,
                         httponly=True, samesite="lax")
     return response
 
@@ -487,7 +496,8 @@ async def remove_all_titles(request: Request, slug: str,
         raise HTTPException(404, "Unknown site")
     result = await session.execute(delete(Title).where(Title.service_id == service.id))
     await session.commit()
-    msg = f"Removed {result.rowcount} title{'' if result.rowcount == 1 else 's'} from {service.name}."
+    plural = "" if result.rowcount == 1 else "s"
+    msg = f"Removed {result.rowcount} title{plural} from {service.name}."
     return Response(headers={"HX-Redirect": f"/sites?msg={quote(msg)}"})
 
 

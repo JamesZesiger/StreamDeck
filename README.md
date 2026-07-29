@@ -44,6 +44,24 @@ service once in the same browser — deep links then open already authenticated.
 
 To stop: `docker compose down` (add `-v` to also delete the library database).
 
+## Development
+
+Tests live in [`tests/`](tests/) (pytest, no database needed) and linting is
+pylint, both configured in [`pyproject.toml`](pyproject.toml). One-time setup:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+
+# Run lint + tests on every commit (the hook lives in .githooks/):
+git config core.hooksPath .githooks
+```
+
+Run them directly with `.venv/bin/python -m pytest` and
+`.venv/bin/python -m pylint app tests`. The pre-commit hook runs both and
+blocks the commit if either fails; bypass in an emergency with
+`git commit --no-verify`.
+
 ## Dependencies
 
 Python packages (pinned in [`app/requirements.txt`](app/requirements.txt)):

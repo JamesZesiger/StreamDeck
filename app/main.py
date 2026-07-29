@@ -2,8 +2,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 
@@ -147,7 +149,7 @@ async def _backfill_details() -> None:
             results = await asyncio.gather(
                 *(fetch(tid, mt) for tid, mt in by_key))
             filled = 0
-            for (key, titles), details in zip(by_key.items(), results):
+            for (_key, titles), details in zip(by_key.items(), results):
                 if details:
                     for t in titles:
                         t.genres = details["genres"]
@@ -254,7 +256,7 @@ async def _refresh_availability() -> None:
                 *(fetch(tid, mt) for tid, mt in by_key))
             now = datetime.now(timezone.utc)
             flagged = cleared = 0
-            for (key, titles), provider_regions in zip(by_key.items(), results):
+            for (_key, titles), provider_regions in zip(by_key.items(), results):
                 if provider_regions is None:
                     continue
                 for t in titles:
@@ -283,7 +285,7 @@ async def _startup_backfills() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     await _init_db()
     backfill = asyncio.create_task(_startup_backfills())
     yield
@@ -291,6 +293,28 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="StreamDeck", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def same_origin_guard(request: Request, call_next):
+    """CSRF defense: every state change here is a cookie-authenticated
+    browser request, so its Origin (or Referer) must match the host the
+    browser is talking to. Requests with neither header come from
+    non-browser clients, which cross-site pages can't forge."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        if origin is None:
+            referer = request.headers.get("referer")
+            origin_host = urlparse(referer).netloc if referer else None
+        else:
+            # "Origin: null" (sandboxed iframes etc.) parses to "" — rejected.
+            origin_host = urlparse(origin).netloc
+        if origin_host is not None and origin_host != request.url.netloc:
+            return PlainTextResponse("Cross-origin request rejected",
+                                     status_code=403)
+    return await call_next(request)
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(pages.router)
 app.include_router(api.router)

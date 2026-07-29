@@ -61,7 +61,7 @@ def load_sites() -> list[dict]:
     if not p.exists():
         save_sites([dict(s) for s in DEFAULT_SITES])
         return [dict(s) for s in DEFAULT_SITES]
-    with p.open() as f:
+    with p.open(encoding="utf-8") as f:
         raw = json.load(f).get("sites", [])
     # Backfill fields added after the file was created (e.g. tmdb_provider_id)
     # from the shipped defaults, without clobbering stored values.
@@ -90,7 +90,7 @@ def save_sites(sites: list[dict]) -> None:
     p = _path()
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    with tmp.open("w") as f:
+    with tmp.open("w", encoding="utf-8") as f:
         json.dump({"sites": sites}, f, indent=2)
     tmp.replace(p)
 
@@ -101,6 +101,16 @@ def get_site(slug: str) -> dict | None:
 
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
+def is_http_url(url: str) -> bool:
+    """Only http(s) URLs may be stored where templates render an href —
+    anything else (javascript:, data:, ...) would execute on click."""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.netloc)
 
 
 def _clean_domain(base_domain: str) -> str:
@@ -148,7 +158,10 @@ def update_site(slug: str, name: str, base_domain: str,
         s["base_domain"] = _clean_domain(base_domain)
         s["tmdb_provider_id"] = tmdb_provider_id
         if search_url.strip():
-            s["search_url"] = search_url.strip()
+            cleaned = search_url.strip()
+            if not is_http_url(cleaned):
+                raise ValueError("Search URL must start with http:// or https://.")
+            s["search_url"] = cleaned
         s["search_links_only"] = search_links_only
         save_sites(sites)
         return s

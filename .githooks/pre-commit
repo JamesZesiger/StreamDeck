@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# Blocks commits that fail lint or tests. One-time setup per clone:
+#   git config core.hooksPath .githooks
+# Skip in an emergency with: git commit --no-verify
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+PY=.venv/bin/python
+if [ ! -x "$PY" ]; then
+    PY=python3
+fi
+
+echo "pre-commit: pylint"
+"$PY" -m pylint app tests
+
+echo "pre-commit: pytest"
+"$PY" -m pytest -q

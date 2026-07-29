@@ -1,0 +1,5 @@
+# Everything the app needs, plus test and lint tooling.
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+-r app/requirements.txt
+pytest==8.*
+pylint==3.*
