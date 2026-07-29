@@ -43,7 +43,7 @@
       <a href="/discover" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Discover</a>
       <a href="/sites" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Sites</a>
       <select name="region" title="Watch region — only titles available here are shown"
-              hx-post="/api/settings/region" hx-trigger="change" hx-swap="none"
+              hx-post="/api/settings/region" hx-trigger="change" hx-swap="none" data-toast="Watch region saved"
               class="rounded-lg bg-transparent text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 px-1.5 py-1.5 cursor-pointer focus:outline-none border-none">
         <option value="" class="bg-zinc-900 text-zinc-100" {{ 'selected' if not current_region() }}>ALL</option>
         {% for code, name in regions %}
@@ -53,6 +53,7 @@
       </select>
       <select name="lang" title="Metadata language"
               hx-post="/api/settings/language" hx-trigger="change" hx-swap="none"
+              data-toast="Language saved — metadata refreshes in the background"
               class="rounded-lg bg-transparent text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 px-1.5 py-1.5 cursor-pointer focus:outline-none border-none">
         {% for code, abbr, name in languages %}
         <option value="{{ code }}" title="{{ name }}" class="bg-zinc-900 text-zinc-100"
@@ -84,6 +85,7 @@
   <main class="{% block main_class %}max-w-7xl mx-auto px-4 py-6{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <div id="toast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[90vw] rounded-lg bg-zinc-800 ring-1 ring-zinc-700 shadow-2xl px-4 py-2 text-sm text-zinc-100"></div>
   <div id="kbd-help" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
        onclick="if (event.target === this) sdToggleHelp(false)">
     <div class="w-full max-w-md rounded-2xl bg-zinc-900 ring-1 ring-zinc-700 shadow-2xl p-6">
@@ -135,6 +137,39 @@
     function sdTyping(e) {
       return e.ctrlKey || e.altKey || e.metaKey ||
         (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]'));
+    }
+    let sdToastTimer;
+    function sdToast(msg, err) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.toggle('ring-red-700', !!err);
+      el.classList.toggle('ring-zinc-700', !err);
+      el.classList.remove('hidden');
+      clearTimeout(sdToastTimer);
+      sdToastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+    }
+    // Feedback for actions that swap nothing into the page. Their successes
+    // respond with HX-Refresh, so the toast is parked in sessionStorage and
+    // shown after the reload; failures would otherwise be completely silent.
+    document.body.addEventListener('htmx:afterRequest', (e) => {
+      const el = e.detail.elt;
+      if (!(el instanceof Element) || el.getAttribute('hx-swap') !== 'none') return;
+      const src = el.closest('[data-toast]');
+      const msg = src ? src.dataset.toast : 'Saved';
+      // Not detail.successful: htmx returns early on HX-Refresh responses,
+      // before it sets that flag, and every success here refreshes.
+      const xhr = e.detail.xhr;
+      if (!xhr || xhr.status < 200 || xhr.status >= 400)
+        sdToast(xhr && xhr.status === 403
+                ? 'Locked — parent PIN required.' : 'Something went wrong.', true);
+      else if (xhr.getResponseHeader('HX-Refresh'))
+        sessionStorage.setItem('sd-toast', msg);
+      else sdToast(msg);
+    });
+    const sdPendingToast = sessionStorage.getItem('sd-toast');
+    if (sdPendingToast) {
+      sessionStorage.removeItem('sd-toast');
+      sdToast(sdPendingToast);
     }
     function sdToggleHelp(show) {
       const el = document.getElementById('kbd-help');
