@@ -61,6 +61,8 @@ Press `?` on any page for this overlay. Shortcuts never fire while typing in a f
 | Title page | `w` | Toggle watched |
 | Title page | `l` | Toggle my list |
 | Title page | `Backspace` | Back to the library |
+| Anywhere | `←` `→` `↑` `↓` | Move focus between controls (spatial navigation) |
+| Anywhere | `1` `2` `3` | Go to Discover / Browse / Sites |
 | Anywhere | `Esc` | Close menus & overlays |
 
 ## Development

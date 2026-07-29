@@ -272,8 +272,12 @@
     if (!e.key.startsWith('Arrow') || e.target.closest('#library-drawer')) return;
     const tiles = [...document.querySelectorAll('#tile-grid a[href^="/titles/"]')];
     if (!tiles.length) return;
-    e.preventDefault();
     const idx = tiles.indexOf(document.activeElement);
+    // Focus on some other control (nav, banners): let the global spatial
+    // navigation in base.html move it; it hands back once a tile focuses.
+    if (idx === -1 && document.activeElement !== document.body
+        && document.activeElement !== document.documentElement) return;
+    e.preventDefault();
     let next;
     if (idx === -1) next = tiles[0];
     else if (e.key === 'ArrowRight') next = tiles[idx + 1];

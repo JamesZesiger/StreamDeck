@@ -40,6 +40,35 @@
       </div>
     </section>
 
+    <section class="bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
+      <h2 class="font-semibold mb-1">Region &amp; language</h2>
+      <p class="text-sm text-zinc-500 mb-4">Applies to everyone. Only titles streamable in the
+        watch region are shown; metadata is fetched in the chosen language.</p>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <label class="text-sm">
+          <span class="block mb-1">Watch region</span>
+          <select name="region" hx-post="/api/settings/region" hx-trigger="change" hx-swap="none"
+                  data-toast="Watch region saved"
+                  class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2 text-sm">
+            <option value="" {{ 'selected' if not current_region() }}>All regions</option>
+            {% for code, name in regions %}
+            <option value="{{ code }}" {{ 'selected' if code == current_region() }}>{{ code }} — {{ name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="text-sm">
+          <span class="block mb-1">Metadata language</span>
+          <select name="lang" hx-post="/api/settings/language" hx-trigger="change" hx-swap="none"
+                  data-toast="Language saved — metadata refreshes in the background"
+                  class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-2 text-sm">
+            {% for code, abbr, name in languages %}
+            <option value="{{ code }}" {{ 'selected' if code == current_language() }}>{{ name }} ({{ abbr }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </section>
+
     {% set theme = current_theme() %}
     <section class="bg-zinc-900 ring-1 ring-zinc-800 rounded-xl p-5">
       <h2 class="font-semibold mb-1">Theme</h2>
