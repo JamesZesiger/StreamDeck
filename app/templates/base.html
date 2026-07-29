@@ -30,6 +30,11 @@
       outline-offset: 2px;
       border-radius: 6px;
     }
+    /* Edge-snap scrolling for spatial nav: enough top margin to clear
+       the sticky toolbar, a small gap on the other sides. */
+    :where(a, button, input, select, summary, [tabindex]) {
+      scroll-margin: 5rem 1rem 1rem;
+    }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100 min-h-screen">

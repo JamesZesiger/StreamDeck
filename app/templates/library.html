@@ -277,16 +277,19 @@
     // navigation in base.html move it; it hands back once a tile focuses.
     if (idx === -1 && document.activeElement !== document.body
         && document.activeElement !== document.documentElement) return;
-    e.preventDefault();
     let next;
     if (idx === -1) next = tiles[0];
     else if (e.key === 'ArrowRight') next = tiles[idx + 1];
     else if (e.key === 'ArrowLeft') next = tiles[idx - 1];
     else next = nearestVertical(tiles, tiles[idx], e.key === 'ArrowDown' ? 1 : -1);
-    if (next) {
-      next.focus();
-      next.scrollIntoView({ block: 'center' });
-    }
+    // Edge of the grid: leave the event for the global spatial nav so
+    // focus can climb out (carousel, banners, nav) instead of stopping.
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
+    // 'nearest': only scrolls when the tile is off-screen, and then just
+    // far enough to snap it to the closest edge (scroll-margin pads it).
+    next.scrollIntoView({ block: 'nearest' });
   });
   // Filter chips only stage their value here — nothing reloads until Apply,
   // so several filters can be picked in one drawer visit. Closing the drawer
@@ -414,6 +417,17 @@
       show(i);
       timer = setInterval(next, 5000);
     }));
+    // The carousel is one focus stop for the spatial nav: ←/→ flip
+    // slides while focused, and autoplay pauses so the slide doesn't
+    // change underfoot. ↑/↓ pass through and move focus away.
+    root.setAttribute('tabindex', '0');
+    root.addEventListener('focus', () => clearInterval(timer));
+    root.addEventListener('blur', () => { timer = setInterval(next, 5000); });
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      show((current + (e.key === 'ArrowRight' ? 1 : slides.length - 1)) % slides.length);
+    });
   }
   initCarousel('collection-carousel');
   initCarousel('upcoming-carousel');
