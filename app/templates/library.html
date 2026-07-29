@@ -191,9 +191,10 @@
     });
     updateSelectCount();
   }
-  document.getElementById('tile-grid').addEventListener('click', (e) => {
+  // Delegated from document: this script runs before #tile-grid exists.
+  document.addEventListener('click', (e) => {
     if (!selectMode) return;
-    const tile = e.target.closest('a[data-title-id]');
+    const tile = e.target.closest('#tile-grid a[data-title-id]');
     if (!tile) return;
     e.preventDefault();
     const id = tile.dataset.titleId;
