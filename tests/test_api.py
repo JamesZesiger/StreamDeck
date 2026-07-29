@@ -110,3 +110,23 @@ class TestCreateTitleValidation:
                               "media_type": "banana"},
                         headers=SAME_ORIGIN)
         assert r.status_code == 400
+
+
+class TestBulkTitlesValidation:
+    def test_rejects_unknown_action(self, client):
+        r = client.post("/api/titles/bulk",
+                        data={"action": "explode", "ids": "1,2"},
+                        headers=SAME_ORIGIN)
+        assert r.status_code == 400
+
+    def test_rejects_non_numeric_ids(self, client):
+        r = client.post("/api/titles/bulk",
+                        data={"action": "watched", "ids": "1,DROP TABLE"},
+                        headers=SAME_ORIGIN)
+        assert r.status_code == 400
+
+    def test_rejects_empty_ids(self, client):
+        r = client.post("/api/titles/bulk",
+                        data={"action": "watched", "ids": " , "},
+                        headers=SAME_ORIGIN)
+        assert r.status_code == 400

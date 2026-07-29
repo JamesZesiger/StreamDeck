@@ -55,6 +55,7 @@ Press `?` on any page for this overlay. Shortcuts never fire while typing in a f
 | Library | `/` | Search the library |
 | Library | `f` | Toggle the filters & search drawer |
 | Library | `a` | Add a title |
+| Library | `s` | Select mode — pick tiles, then bulk mark watched/unwatched or remove |
 | Title page | `p` | Play on the default service |
 | Title page | `t` | Play the trailer |
 | Title page | `w` | Toggle watched |

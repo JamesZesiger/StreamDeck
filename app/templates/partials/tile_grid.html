@@ -1,6 +1,7 @@
 {% macro tile(g) %}
 {% set t = g.primary %}
-<a href="/titles/{{ t.id }}" class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500 transition">
+<a href="/titles/{{ t.id }}" data-title-id="{{ t.id }}"
+   class="group relative rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 hover:ring-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500 transition">
   {% if t.poster_url %}
   <img src="{{ t.poster_url }}" alt="{{ t.title }}" class="w-full aspect-[2/3] object-cover group-hover:opacity-80 transition">
   {% else %}
@@ -28,6 +29,7 @@
           title="Furthest episode watched">{{ g.ep_label }}</span>
     {% endif %}
   </div>
+  <span class="select-badge hidden absolute bottom-2 right-2 w-6 h-6 rounded-full bg-red-600 ring-1 ring-zinc-950 shadow-lg text-xs font-bold items-center justify-center">✓</span>
   <div class="p-2">
     <p class="text-sm font-medium truncate">{{ t.title }}</p>
     <p class="text-xs text-zinc-500">{{ t.release_year or '' }}</p>
