@@ -33,6 +33,7 @@
     </div>
     <input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
            hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
+           hx-replace-url="true"
            hx-include="[name='sort']"
            hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'
            autocomplete="off"
@@ -114,6 +115,7 @@
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Sort</div>
       <select name="sort" title="Sort library"
               hx-get="/" hx-trigger="change" hx-target="#tile-grid" hx-swap="innerHTML"
+              hx-replace-url="true"
               hx-include="[name='q']"
               hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'
               class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-2 py-1.5 text-sm">
@@ -202,12 +204,14 @@
     paintTile(tile, selected.has(id));
     updateSelectCount();
   });
-  // Search/sort swap the grid's tiles out from under a selection in
-  // progress; repaint whatever selected tiles are still shown.
+  // Search/sort swap the grid's tiles (and the Select button) out from
+  // under a selection in progress; repaint what's still shown.
   document.body.addEventListener('htmx:afterSwap', (e) => {
     if (e.target.id !== 'tile-grid') return;
     document.querySelectorAll('#tile-grid a[data-title-id]').forEach((t) =>
       paintTile(t, selected.has(t.dataset.titleId)));
+    const btn = document.getElementById('select-mode-btn');
+    if (btn) btn.textContent = selectMode ? 'Done' : 'Select';
   });
   async function bulkAction(action) {
     if (!selected.size) return;
@@ -217,8 +221,23 @@
       method: 'POST',
       body: new URLSearchParams({ action, ids: [...selected].join(',') }),
     });
-    if (r.ok) window.location.reload();
-    else alert(r.status === 403 ? 'PIN required — unlock in Settings first.' : 'Something went wrong.');
+    if (r.ok) {
+      sessionStorage.setItem('sd-toast', selected.size +
+        (action === 'remove' ? ' title(s) removed' : ' title(s) updated'));
+      window.location.reload();
+    } else {
+      sdToast(r.status === 403 ? 'Locked — parent PIN required.' : 'Something went wrong.', true);
+    }
+  }
+  // Keep your place in the grid when coming back from a title. The URL
+  // reflects search/sort via hx-replace-url, so the key follows filters.
+  const scrollKey = 'sd-scroll:' + location.pathname + location.search;
+  window.addEventListener('pagehide', () => sessionStorage.setItem(
+    'sd-scroll:' + location.pathname + location.search, String(Math.round(window.scrollY))));
+  const navEntry = performance.getEntriesByType('navigation')[0];
+  if (navEntry && navEntry.type === 'back_forward') {
+    const savedY = Number(sessionStorage.getItem(scrollKey));
+    if (savedY) requestAnimationFrame(() => window.scrollTo(0, savedY));
   }
   // Keyboard controls: arrows move tile focus (Enter opens — tiles are
   // anchors), '/' searches, 'f' toggles filters, 'a' adds a title.
@@ -253,8 +272,12 @@
     if (!e.key.startsWith('Arrow') || e.target.closest('#library-drawer')) return;
     const tiles = [...document.querySelectorAll('#tile-grid a[href^="/titles/"]')];
     if (!tiles.length) return;
-    e.preventDefault();
     const idx = tiles.indexOf(document.activeElement);
+    // Focus on some other control (nav, banners): let the global spatial
+    // navigation in base.html move it; it hands back once a tile focuses.
+    if (idx === -1 && document.activeElement !== document.body
+        && document.activeElement !== document.documentElement) return;
+    e.preventDefault();
     let next;
     if (idx === -1) next = tiles[0];
     else if (e.key === 'ArrowRight') next = tiles[idx + 1];
@@ -346,12 +369,6 @@
 </div>
 {% endif %}
 
-{% if groups %}
-<div class="flex items-center justify-end mb-3">
-  <button type="button" id="select-mode-btn" onclick="toggleSelectMode()"
-          class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300">Select</button>
-</div>
-{% endif %}
 {% set show_banners = true %}
 <div id="tile-grid">
   {% include "partials/tile_grid.html" %}

@@ -23,6 +23,13 @@
       50% { background-position: 100% 50%; }
       100% { background-position: 0% 50%; }
     }
+    /* Keyboard/spatial-nav focus. Elements with their own focus styles
+       (tiles, inputs) opt out via Tailwind's focus:outline-none. */
+    :focus-visible {
+      outline: 2px solid {{ accents[theme.accent]['500'] }};
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100 min-h-screen">
@@ -36,29 +43,26 @@
   {% endif %}
   {% block nav %}
   <nav class="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur border-b border-zinc-800">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-      {% block nav_left %}{% endblock %}
-      <a href="/" class="text-xl font-bold tracking-tight shrink-0 mr-auto">Stream<span class="text-red-500">Deck</span></a>
-      {% block nav_extra %}{% endblock %}
-      <a href="/discover" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Discover</a>
-      <a href="/sites" class="text-sm text-zinc-400 hover:text-zinc-100 px-2 py-1.5">Sites</a>
-      <select name="region" title="Watch region — only titles available here are shown"
-              hx-post="/api/settings/region" hx-trigger="change" hx-swap="none"
-              class="rounded-lg bg-transparent text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 px-1.5 py-1.5 cursor-pointer focus:outline-none border-none">
-        <option value="" class="bg-zinc-900 text-zinc-100" {{ 'selected' if not current_region() }}>ALL</option>
-        {% for code, name in regions %}
-        <option value="{{ code }}" title="{{ name }}" class="bg-zinc-900 text-zinc-100"
-                {{ 'selected' if code == current_region() }}>{{ code }}</option>
+    {# 1fr sides keep the page links at the exact page center no matter
+       how wide the logo or the icons are. #}
+    <div class="max-w-7xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-x-4">
+      <div class="flex items-center gap-x-4 justify-start">
+        {% block nav_left %}{% endblock %}
+        <a href="/" class="text-xl font-bold tracking-tight shrink-0">Stream<span class="text-red-500">Deck</span></a>
+      </div>
+      {# Centered page links: the current page reads bigger and brighter. #}
+      <div class="flex items-center justify-center gap-x-6">
+        {% set path = request.url.path %}
+        {% for href, label in [('/discover', 'Discover'), ('/', 'Browse'), ('/sites', 'Sites')] %}
+        {% set active = path == href
+             or (href == '/' and (path.startswith('/titles') or path.startswith('/add')))
+             or (href != '/' and path.startswith(href)) %}
+        <a href="{{ href }}" data-nav-tab="{{ 'active' if active else '' }}"
+           title="{{ label }} ({{ loop.index }})" class="transition-all
+           {{ 'text-lg font-semibold text-zinc-100' if active else 'text-sm text-zinc-500 hover:text-zinc-300' }}">{{ label }}</a>
         {% endfor %}
-      </select>
-      <select name="lang" title="Metadata language"
-              hx-post="/api/settings/language" hx-trigger="change" hx-swap="none"
-              class="rounded-lg bg-transparent text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 px-1.5 py-1.5 cursor-pointer focus:outline-none border-none">
-        {% for code, abbr, name in languages %}
-        <option value="{{ code }}" title="{{ name }}" class="bg-zinc-900 text-zinc-100"
-                {{ 'selected' if code == current_language() }}>{{ abbr }}</option>
-        {% endfor %}
-      </select>
+      </div>
+      <div class="flex items-center gap-x-4 justify-end">
       <a href="/settings" title="Settings"
          class="rounded-lg p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -78,12 +82,14 @@
         </div>
       </details>
       {% endif %}
+      </div>
     </div>
   </nav>
   {% endblock %}
   <main class="{% block main_class %}max-w-7xl mx-auto px-4 py-6{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <div id="toast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[90vw] rounded-lg bg-zinc-800 ring-1 ring-zinc-700 shadow-2xl px-4 py-2 text-sm text-zinc-100"></div>
   <div id="kbd-help" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
        onclick="if (event.target === this) sdToggleHelp(false)">
     <div class="w-full max-w-md rounded-2xl bg-zinc-900 ring-1 ring-zinc-700 shadow-2xl p-6">
@@ -117,6 +123,8 @@
         <div>
           <p class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Anywhere</p>
           <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
+            <span>{{ kbd('←') }} {{ kbd('→') }} {{ kbd('↑') }} {{ kbd('↓') }}</span><span>Move between controls</span>
+            <span>{{ kbd('1') }} {{ kbd('2') }} {{ kbd('3') }}</span><span>Discover / Browse / Sites</span>
             <span>{{ kbd('?') }}</span><span>This overlay</span>
             <span>{{ kbd('Esc') }}</span><span>Close menus &amp; overlays</span>
           </div>
@@ -136,6 +144,39 @@
       return e.ctrlKey || e.altKey || e.metaKey ||
         (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]'));
     }
+    let sdToastTimer;
+    function sdToast(msg, err) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.toggle('ring-red-700', !!err);
+      el.classList.toggle('ring-zinc-700', !err);
+      el.classList.remove('hidden');
+      clearTimeout(sdToastTimer);
+      sdToastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+    }
+    // Feedback for actions that swap nothing into the page. Their successes
+    // respond with HX-Refresh, so the toast is parked in sessionStorage and
+    // shown after the reload; failures would otherwise be completely silent.
+    document.body.addEventListener('htmx:afterRequest', (e) => {
+      const el = e.detail.elt;
+      if (!(el instanceof Element) || el.getAttribute('hx-swap') !== 'none') return;
+      const src = el.closest('[data-toast]');
+      const msg = src ? src.dataset.toast : 'Saved';
+      // Not detail.successful: htmx returns early on HX-Refresh responses,
+      // before it sets that flag, and every success here refreshes.
+      const xhr = e.detail.xhr;
+      if (!xhr || xhr.status < 200 || xhr.status >= 400)
+        sdToast(xhr && xhr.status === 403
+                ? 'Locked — parent PIN required.' : 'Something went wrong.', true);
+      else if (xhr.getResponseHeader('HX-Refresh'))
+        sessionStorage.setItem('sd-toast', msg);
+      else sdToast(msg);
+    });
+    const sdPendingToast = sessionStorage.getItem('sd-toast');
+    if (sdPendingToast) {
+      sessionStorage.removeItem('sd-toast');
+      sdToast(sdPendingToast);
+    }
     function sdToggleHelp(show) {
       const el = document.getElementById('kbd-help');
       if (show === undefined) show = el.classList.contains('hidden');
@@ -148,7 +189,69 @@
         return;
       }
       if (sdTyping(e)) return;
-      if (e.key === '?') { e.preventDefault(); sdToggleHelp(); }
+      if (e.key === '?') { e.preventDefault(); sdToggleHelp(); return; }
+      const tab = document.querySelectorAll('a[data-nav-tab]')[Number(e.key) - 1];
+      if (tab && tab.dataset.navTab !== 'active') window.location.href = tab.href;
+    });
+    // Spatial navigation: arrows move focus to the nearest interactive
+    // element in that direction, so every page works from a TV remote.
+    // Page scripts that handle arrows themselves (the library's tile
+    // grid) run first and preventDefault; this handler then stays out.
+    const SD_DIRS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    function sdFocusScope() {
+      // Confine focus to the top open layer so it can't wander behind it.
+      for (const sel of ['#kbd-help', '#trailer-modal', '#library-drawer', '#profile-menu[open]']) {
+        const el = document.querySelector(sel);
+        if (el && !el.classList.contains('hidden')) return el;
+      }
+      return document;
+    }
+    document.addEventListener('keydown', (e) => {
+      const dir = SD_DIRS[e.key];
+      if (!dir || e.defaultPrevented || sdTyping(e)) return;
+      const scope = sdFocusScope();
+      const candidates = [...scope.querySelectorAll(
+        'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'
+      )].filter((el) => {
+        if (el.disabled || el.closest('.opacity-0, .pointer-events-none')) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 1 && r.height > 1;
+      });
+      if (!candidates.length) return;
+      const active = document.activeElement;
+      const from = (active && active !== document.body && active !== document.documentElement
+                    && scope.contains(active) && candidates.includes(active)) ? active : null;
+      let next = null;
+      if (!from) {
+        // Nothing focused: start at the top-left element in the viewport.
+        let best = Infinity;
+        for (const el of candidates) {
+          const r = el.getBoundingClientRect();
+          if (r.bottom < 0 || r.top > innerHeight) continue;
+          const score = r.top * 3 + r.left;
+          if (score < best) { best = score; next = el; }
+        }
+        next = next || candidates[0];
+      } else {
+        const r0 = from.getBoundingClientRect();
+        const cx = r0.left + r0.width / 2, cy = r0.top + r0.height / 2;
+        let best = Infinity;
+        for (const el of candidates) {
+          if (el === from) continue;
+          const r = el.getBoundingClientRect();
+          const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+          const ahead = dx * dir[0] + dy * dir[1];        // distance along the arrow
+          if (ahead <= 1) continue;
+          const cross = Math.abs(dx * dir[1]) + Math.abs(dy * dir[0]);
+          const score = ahead + cross * 2;
+          if (score < best) { best = score; next = el; }
+        }
+      }
+      if (next) {
+        e.preventDefault();
+        next.focus();
+        next.scrollIntoView({ block: 'nearest' });
+      }
     });
   </script>
 </body>
