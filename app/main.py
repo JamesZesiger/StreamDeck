@@ -9,6 +9,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 
+import prefs
 import sites
 import tmdb
 import wikidata
@@ -287,6 +288,7 @@ async def _startup_backfills() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await _init_db()
+    prefs.warm_cache()
     backfill = asyncio.create_task(_startup_backfills())
     yield
     backfill.cancel()
