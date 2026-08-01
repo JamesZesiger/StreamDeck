@@ -69,6 +69,18 @@ class Title(Base):
     service: Mapped[Service] = relationship(back_populates="titles")
 
 
+class AppPref(Base):
+    """One app-wide preference (see prefs.py): metadata language, region,
+    theme, parent PIN hash, token signing key. Values are JSON-encoded so
+    the theme can stay a dict. App-wide, not per profile — background
+    imports have no profile context."""
+
+    __tablename__ = "app_prefs"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+
+
 class Profile(Base):
     """A person using the app. The library is shared; watch state is not."""
 

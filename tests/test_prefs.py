@@ -1,6 +1,7 @@
 """PIN hashing, secret key, and stored-preference behavior."""
 
 import hashlib
+import json
 
 import prefs
 
@@ -52,18 +53,23 @@ class TestSecretKey:
 
 
 class TestStoredPrefs:
-    def test_language_defaults_without_file(self):
+    def test_language_defaults_when_unset(self):
         assert prefs.get_language() == prefs.DEFAULT_LANGUAGE
 
     def test_language_roundtrip(self):
         prefs.set_language("de-DE")
-        prefs._language = None  # drop the cache; force a re-read from disk
+        prefs._cache = None  # drop the cache; force a re-read from the table
         assert prefs.get_language() == "de-DE"
 
     def test_region_roundtrip(self):
         prefs.set_region("CA")
-        prefs._region = None
+        prefs._cache = None
         assert prefs.get_region() == "CA"
+
+    def test_wrong_stored_type_falls_back_to_default(self):
+        prefs._save("region", {"not": "a string"})
+        prefs._cache = None
+        assert prefs.get_region() == prefs.DEFAULT_REGION
 
     def test_theme_merges_with_defaults(self):
         prefs.set_theme({"accent": "blue"})
@@ -74,3 +80,42 @@ class TestStoredPrefs:
     def test_theme_unknown_accent_falls_back(self):
         prefs.set_theme({"accent": "hotdog"})
         assert prefs.get_theme()["accent"] == prefs.DEFAULT_THEME["accent"]
+
+
+class TestLegacyFileImport:
+    """Installs that predate the app_prefs table keep their prefs.json
+    values: the first read of an empty table imports the file."""
+
+    def _write_legacy(self, data):
+        path = prefs._legacy_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_values_are_imported(self):
+        self._write_legacy({"language": "ja-JP", "region": "JP",
+                            "theme": {"accent": "violet"}})
+        assert prefs.get_language() == "ja-JP"
+        assert prefs.get_region() == "JP"
+        assert prefs.get_theme()["accent"] == "violet"
+
+    def test_imported_pin_still_verifies(self):
+        self._write_legacy({"pin_hash": prefs.hash_pin("1234")})
+        assert prefs.verify_pin("1234", prefs.get_pin_hash())
+
+    def test_import_persists_to_the_table(self):
+        self._write_legacy({"language": "ko-KR"})
+        prefs.get_language()          # triggers the import
+        prefs._legacy_file().unlink()  # file gone: the table must answer now
+        prefs._cache = None
+        assert prefs.get_language() == "ko-KR"
+
+    def test_stored_values_win_over_the_file(self):
+        prefs.set_language("fr-FR")
+        self._write_legacy({"language": "de-DE"})
+        prefs._cache = None
+        assert prefs.get_language() == "fr-FR"
+
+    def test_malformed_file_is_ignored(self):
+        prefs._legacy_file().parent.mkdir(parents=True, exist_ok=True)
+        prefs._legacy_file().write_text("{not json", encoding="utf-8")
+        assert prefs.get_language() == prefs.DEFAULT_LANGUAGE

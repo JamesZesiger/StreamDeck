@@ -111,8 +111,8 @@ Infrastructure: `postgres:16-alpine` and a local image built on `python:3.12-sli
 - **Frontend:** Server-rendered Jinja2 templates, Tailwind CSS (CDN), htmx for partial
   updates — no JavaScript build step
 - **Metadata:** TMDB REST API; Wikidata SPARQL for deep links
-- **Config:** `config/sites.json` (site registry) and `config/prefs.json` (language,
-  region, parent PIN), volume-mounted at `/data`
+- **Config:** `config/sites.json` (site registry), volume-mounted at `/data`; app-wide
+  preferences (language, region, theme, parent PIN) live in the database
 - **Deployment:** Docker Compose, single host, home LAN
 
 ## Design principles
@@ -139,7 +139,7 @@ Two containers behind Docker Compose:
 | Container | Image | Role |
 |---|---|---|
 | `app` | local build (`python:3.12-slim`) | FastAPI backend + server-rendered UI (Jinja2, Tailwind, htmx) |
-| `db` | `postgres:16-alpine` | Profiles, services, and the title library |
+| `db` | `postgres:16-alpine` | Profiles, preferences, services, and the title library |
 
 The `app` container is organized as:
 
@@ -150,7 +150,8 @@ The `app` container is organized as:
   toggles, profile and settings management, PIN lock/unlock, site CRUD, and the bulk
   "Add all" preload with a stop control.
 - **`profiles.py` / `prefs.py`** — active-profile resolution and content policy (rating
-  caps, kid mode, PIN), plus app-wide preferences (TMDB language, region).
+  caps, kid mode, PIN), plus app-wide preferences (TMDB language, region, theme) stored
+  in the `app_prefs` table.
 - **`sites.py`** — the site registry backed by `config/sites.json`, synced into the
   `services` table on startup.
 - **`tmdb.py` / `wikidata.py`** — external metadata clients.
@@ -173,7 +174,7 @@ flowchart LR
     subgraph compose [docker compose]
         APP[app<br>FastAPI + Jinja2 + htmx]
         DB[(db<br>PostgreSQL 16)]
-        CFG[/config JSON<br>sites, prefs/]
+        CFG[/config JSON<br>sites/]
     end
     TMDB[(TMDB API<br>metadata + providers)]
     WD[(Wikidata SPARQL<br>deep-link IDs)]
