@@ -109,7 +109,7 @@ Infrastructure: `postgres:16-alpine` and a local image built on `python:3.12-sli
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (async) on PostgreSQL 16
 - **Frontend:** Server-rendered Jinja2 templates, Tailwind CSS (CDN), htmx for partial
-  updates — no JavaScript build step
+  updates — no JavaScript build step; installable as a PWA (web-app manifest)
 - **Metadata:** TMDB REST API; Wikidata SPARQL for deep links
 - **Config:** `config/sites.json` (site registry), volume-mounted at `/data`; app-wide
   preferences (language, region, theme, parent PIN) live in the database
@@ -144,8 +144,9 @@ Two containers behind Docker Compose:
 The `app` container is organized as:
 
 - **`routers/pages.py`** — HTML pages: library grid (`/`) with filters, search, and sorting
-  (including a Bayesian weighted rating sort), the add flow (`/add`), title detail, and
-  sites management (`/sites`).
+  (including a Bayesian weighted rating sort), TMDB discovery (`/discover`), the add flow
+  (`/add`), title detail with season episode lists, settings (`/settings`), sites
+  management (`/sites`), and the PWA manifest.
 - **`routers/api.py`** — htmx endpoints: URL resolution, title CRUD, watched/watch-list
   toggles, profile and settings management, PIN lock/unlock, site CRUD, and the bulk
   "Add all" preload with a stop control.
@@ -158,8 +159,9 @@ The `app` container is organized as:
 - **`models.py` / `db.py`** — ORM models and async engine setup.
 
 Data model in brief: `services` (streaming sites) have `titles` carrying TMDB metadata and
-a resolved `deep_link`; `profiles` hold per-person watch state and watch lists keyed by
-TMDB id, so the same title across several services counts once.
+a resolved `deep_link`; `profiles` hold per-person watch state (including per-episode TV
+tracking) and watch lists keyed by TMDB id, so the same title across several services
+counts once.
 
 ## Architecture diagrams
 
@@ -195,12 +197,14 @@ Data model:
 erDiagram
     SERVICE ||--o{ TITLE : lists
     PROFILE ||--o{ PROFILE_WATCH : tracks
+    PROFILE ||--o{ PROFILE_EPISODE_WATCH : tracks
     PROFILE ||--o{ PROFILE_LIST_ITEM : keeps
 
     SERVICE { string name string slug string base_domain }
     TITLE { int tmdb_id string media_type string title string deep_link string certification float rating string regions }
     PROFILE { string name int max_rating_level string allowed_services bool kid_mode }
     PROFILE_WATCH { int tmdb_id string media_type }
+    PROFILE_EPISODE_WATCH { int tmdb_id int season int episode }
     PROFILE_LIST_ITEM { int tmdb_id string media_type }
 ```
 
