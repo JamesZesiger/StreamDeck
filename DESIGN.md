@@ -133,9 +133,11 @@ synced into the `services` table on startup).
 - `app_prefs`: `key`, JSON-encoded `value` (language, region, theme, PIN hash, token
   signing key).
 
-Schema is created with `create_all` on startup; additive/removal column changes are applied
-with small idempotent `ALTER`s in `_init_db`. Alembic can be introduced when the schema
-churns more.
+The schema is managed by Alembic (`app/migrations/`): the app runs
+`alembic upgrade head` on startup, so `docker compose up` still needs no manual
+migration step. The baseline revision creates the full schema on fresh databases and
+absorbs pre-Alembic installs (which used `create_all` plus idempotent `ALTER`s).
+Schema changes are new revisions: `cd app && alembic revision -m "..."`.
 
 ## Routes
 

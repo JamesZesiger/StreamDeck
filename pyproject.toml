@@ -4,7 +4,9 @@ testpaths = ["tests"]
 [tool.pylint.main]
 # App modules are flat scripts under app/, imported with app/ as cwd.
 init-hook = 'import sys; sys.path.insert(0, "app")'
-ignore-paths = ["^\\.venv/.*"]
+# Migration files use Alembic's required lowercase module globals
+# (revision, down_revision), so they don't lint cleanly.
+ignore-paths = ["^\\.venv/.*", "^app/migrations/.*"]
 
 [tool.pylint.format]
 max-line-length = 100

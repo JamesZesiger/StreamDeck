@@ -2,92 +2,40 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 import prefs
 import sites
 import tmdb
 import wikidata
-from db import SessionLocal, engine
-from models import Base, Service, Title
+from db import SessionLocal
+from models import Service, Title
 from routers import api, pages
 
 log = logging.getLogger(__name__)
 
 
+def _run_migrations() -> None:
+    """Bring the schema to the latest Alembic revision. The alembic API is
+    synchronous (migrations run over the psycopg driver, see env.py), so
+    _init_db calls this in a thread."""
+    command.upgrade(Config(Path(__file__).parent / "alembic.ini"), "head")
+
+
 async def _init_db(retries: int = 10) -> None:
+    # The db container may still be coming up on the first boot; retry
+    # rather than racing its healthcheck.
     for attempt in range(retries):
         try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-                # No Alembic: create_all won't drop removed columns, so retire
-                # the old neko-era playback_mode column (and its enum type) here.
-                await conn.execute(text(
-                    "ALTER TABLE services DROP COLUMN IF EXISTS playback_mode"))
-                await conn.execute(text("DROP TYPE IF EXISTS playback_mode"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "genres VARCHAR(300) NOT NULL DEFAULT ''"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "mature BOOLEAN NOT NULL DEFAULT FALSE"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "rating DOUBLE PRECISION"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "vote_count INTEGER"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "popularity DOUBLE PRECISION"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "certification VARCHAR(20)"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "regions TEXT"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "imdb_id VARCHAR(20)"))
-                await conn.execute(text(
-                    "ALTER TABLE titles ADD COLUMN IF NOT EXISTS "
-                    "unavailable_since TIMESTAMPTZ"))
-                # hide_mature is retired: the age rating cap replaces it.
-                await conn.execute(text(
-                    "ALTER TABLE profiles DROP COLUMN IF EXISTS hide_mature"))
-                await conn.execute(text(
-                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
-                    "max_rating_level INTEGER"))
-                await conn.execute(text(
-                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
-                    "allowed_services VARCHAR(500) NOT NULL DEFAULT ''"))
-                await conn.execute(text(
-                    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "
-                    "kid_mode BOOLEAN NOT NULL DEFAULT FALSE"))
-                # Profiles: the library is shared, watch state is per profile.
-                # Seed one profile, move the legacy global watched flag into
-                # it, then retire the old columns.
-                await conn.execute(text(
-                    "INSERT INTO profiles (name) SELECT 'Default' "
-                    "WHERE NOT EXISTS (SELECT 1 FROM profiles)"))
-                legacy_watched = (await conn.execute(text(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name='titles' AND column_name='watched'"))).first()
-                if legacy_watched:
-                    await conn.execute(text(
-                        "INSERT INTO profile_watches (profile_id, tmdb_id, media_type, watched_at) "
-                        "SELECT (SELECT id FROM profiles ORDER BY id LIMIT 1), "
-                        "       t.tmdb_id, t.media_type, now() "
-                        "FROM (SELECT DISTINCT tmdb_id, media_type FROM titles WHERE watched) t "
-                        "ON CONFLICT DO NOTHING"))
-                    await conn.execute(text("ALTER TABLE titles DROP COLUMN watched"))
-                await conn.execute(text(
-                    "ALTER TABLE titles DROP COLUMN IF EXISTS last_played_at"))
+            await asyncio.to_thread(_run_migrations)
             break
         except Exception:
             if attempt == retries - 1:
