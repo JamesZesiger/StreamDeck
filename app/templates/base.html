@@ -331,17 +331,27 @@
         }
         next = next || candidates[0];
       } else {
+        // Edge-based scoring: 'ahead' is how far focus travels (facing
+        // edge to facing edge) and 'cross' is the gap between the two
+        // elements' spans on the other axis — zero when they overlap.
+        // Center-to-center scoring misjudged large and tiny elements: a
+        // full-width banner's center is far from an edge column (so the
+        // nav logo won instead), while a 10px carousel dot's center is
+        // near everything.
         const r0 = from.getBoundingClientRect();
-        const cx = r0.left + r0.width / 2, cy = r0.top + r0.height / 2;
         let best = Infinity;
         for (const el of candidates) {
           if (el === from) continue;
           const r = el.getBoundingClientRect();
-          const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
-          const ahead = dx * dir[0] + dy * dir[1];        // distance along the arrow
-          if (ahead <= 1) continue;
-          const cross = Math.abs(dx * dir[1]) + Math.abs(dy * dir[0]);
-          const score = ahead + cross * 2;
+          const ahead = dir[0]
+            ? (dir[0] > 0 ? r.left - r0.right : r0.left - r.right)
+            : (dir[1] > 0 ? r.top - r0.bottom : r0.top - r.bottom);
+          if (ahead < -6) continue;  // behind or overlapping the origin
+          const [lo, hi] = dir[0]
+            ? [Math.max(r.top, r0.top), Math.min(r.bottom, r0.bottom)]
+            : [Math.max(r.left, r0.left), Math.min(r.right, r0.right)];
+          const cross = lo <= hi ? 0 : lo - hi;
+          const score = Math.max(ahead, 0) + cross * 2;
           if (score < best) { best = score; next = el; }
         }
       }
