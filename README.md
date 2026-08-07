@@ -126,8 +126,8 @@ Infrastructure: `postgres:16-alpine` and a local image built on `python:3.12-sli
 - **No scraping.** Metadata comes from the TMDB API; availability from TMDB/JustWatch
   watch-provider data; deep links from Wikidata's public catalogue. Streaming sites are only
   ever opened to play content, as a normal browser would.
-- **Simple to operate.** One `docker compose up`, schema created on startup with small
-  idempotent migrations, human-editable JSON config (edits to `sites.json` apply on
+- **Simple to operate.** One `docker compose up`, schema migrated on startup (Alembic
+  runs automatically), human-editable JSON config (edits to `sites.json` apply on
   restart).
 - **Household-friendly.** Per-profile watch state and watch lists, unified US movie/TV
   age-rating levels for kid profiles, and a short-lived parent-PIN unlock.
