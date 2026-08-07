@@ -1,6 +1,7 @@
 services:
   app:
     build: ./app
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -17,6 +18,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

@@ -17,6 +17,13 @@ from db import SessionLocal, engine
 from models import Base, Service, Title
 from routers import api, pages
 
+# Uvicorn only configures its own loggers, so without this the app's
+# log.info calls (import progress, availability refresh, backfills) are
+# silently dropped by the WARNING-level root logger.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 log = logging.getLogger(__name__)
 
 
