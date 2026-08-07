@@ -333,11 +333,14 @@
       } else {
         // Edge-based scoring: 'ahead' is how far focus travels (facing
         // edge to facing edge) and 'cross' is the gap between the two
-        // elements' spans on the other axis — zero when they overlap.
-        // Center-to-center scoring misjudged large and tiny elements: a
-        // full-width banner's center is far from an edge column (so the
-        // nav logo won instead), while a 10px carousel dot's center is
-        // near everything.
+        // elements' spans on the other axis — zero when they overlap,
+        // i.e. they share the arrow's row/column. Same-row/column
+        // candidates always beat diagonal ones (the tier constant
+        // outweighs any on-screen distance): walking a toolbar must
+        // reach its far end, not drop into nearer content below.
+        // (Center-to-center scoring failed both ways: a full-width
+        // banner's center is far from an edge column, and a 10px
+        // carousel dot's center is near everything.)
         const r0 = from.getBoundingClientRect();
         let best = Infinity;
         for (const el of candidates) {
@@ -351,7 +354,7 @@
             ? [Math.max(r.top, r0.top), Math.min(r.bottom, r0.bottom)]
             : [Math.max(r.left, r0.left), Math.min(r.right, r0.right)];
           const cross = lo <= hi ? 0 : lo - hi;
-          const score = Math.max(ahead, 0) + cross * 2;
+          const score = Math.max(ahead, 0) + cross * 2 + (cross > 0 ? 1e6 : 0);
           if (score < best) { best = score; next = el; }
         }
       }
