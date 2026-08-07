@@ -263,7 +263,9 @@
     if (e.key === '/') {
       e.preventDefault();
       toggleLibraryDrawer(true);
-      document.querySelector('input[name="q"]').focus();
+      // '/' means "search now": activate the field even if a previous
+      // arrow-nav visit left it in the highlighted (locked) state.
+      sdActivate(document.querySelector('input[name="q"]'));
       return;
     }
     if (e.key === 'f') { toggleLibraryDrawer(); return; }

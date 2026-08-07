@@ -35,6 +35,14 @@
     :where(a, button, input, select, summary, [tabindex]) {
       scroll-margin: 5rem 1rem 1rem;
     }
+    /* A field the spatial nav highlighted but that isn't active yet:
+       show the nav outline (even though fields opt out of :focus-visible
+       via focus:outline-none) and hide the caret until Enter activates. */
+    [data-sd-lock="1"]:focus {
+      outline: 2px solid {{ accents[theme.accent]['500'] }} !important;
+      outline-offset: 2px;
+      caret-color: transparent;
+    }
   </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100 min-h-screen">
@@ -129,9 +137,10 @@
           <p class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Anywhere</p>
           <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
             <span>{{ kbd('←') }} {{ kbd('→') }} {{ kbd('↑') }} {{ kbd('↓') }}</span><span>Move between controls</span>
+            <span>{{ kbd('Enter') }}</span><span>Select — start typing / open a picker</span>
             <span>{{ kbd('1') }} {{ kbd('2') }} {{ kbd('3') }}</span><span>Discover / Browse / Sites</span>
             <span>{{ kbd('?') }}</span><span>This overlay</span>
-            <span>{{ kbd('Esc') }}</span><span>Close menus &amp; overlays</span>
+            <span>{{ kbd('Esc') }}</span><span>Leave a field, close menus &amp; overlays</span>
           </div>
         </div>
       </div>
@@ -143,11 +152,95 @@
         if (!d.contains(e.target)) d.removeAttribute('open');
       });
     });
+    // Highlight-then-activate for form fields (TV-remote model): arrow
+    // navigation only ever *highlights* a field — locked, so typing and
+    // value changes can't happen and arrows keep navigating. Enter
+    // activates it (typing/caret for text, the dropdown/picker for
+    // select and color); Escape or moving away re-locks it. Fields the
+    // nav never touched behave natively, so mouse users see no change.
+    const SD_FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=button]):not([type=submit]), textarea, select';
+    function sdField(el) {
+      return el instanceof Element ? el.closest(SD_FIELD) : null;
+    }
+    function sdLocked(el) { return el.dataset.sdLock === '1'; }
+    function sdLock(el) {
+      el.dataset.sdLock = '1';
+      el.dataset.sdManaged = '1';
+      if ('readOnly' in el) el.readOnly = true;
+    }
+    function sdActivate(el) {
+      delete el.dataset.sdLock;
+      el.dataset.sdManaged = '1';
+      if ('readOnly' in el) el.readOnly = false;
+      if (document.activeElement !== el) el.focus();
+      // Selects and color swatches edit through a picker; open it so
+      // Enter means "start choosing" everywhere. Best-effort: without
+      // showPicker support the field is still active for native keys.
+      if (el.tagName === 'SELECT' || el.type === 'color') {
+        try { el.showPicker(); } catch (err) { /* unsupported/not allowed */ }
+      }
+    }
+    // Enter activates a highlighted field; Escape returns an active one to
+    // the highlight state. Capture phase, so page handlers (drawer/overlay
+    // Escapes) don't also fire on the same keypress.
+    document.addEventListener('keydown', (e) => {
+      // A remote has no Space: Enter also toggles checkboxes and radios.
+      if (e.key === 'Enter' && e.target instanceof Element
+          && e.target.matches('input[type=checkbox], input[type=radio]')) {
+        e.preventDefault();
+        e.target.click();
+        return;
+      }
+      const field = sdField(e.target);
+      if (!field) return;
+      if (sdLocked(field)) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          sdActivate(field);
+        } else if (e.key.length === 1 && field.tagName === 'SELECT') {
+          e.preventDefault();  // no letter-jump while merely highlighted
+        }
+      } else if (e.key === 'Escape' && document.activeElement === field) {
+        e.preventDefault();
+        e.stopPropagation();
+        sdLock(field);
+      }
+    }, true);
+    // Clicking a highlighted field activates it like Enter would, letting
+    // the click also place the caret / open the picker natively.
+    document.addEventListener('pointerdown', (e) => {
+      const field = sdField(e.target);
+      if (field && sdLocked(field)) {
+        delete field.dataset.sdLock;
+        if ('readOnly' in field) field.readOnly = false;
+      }
+    }, true);
+    // Leaving a field the nav has managed re-locks it, so the next arrow
+    // visit highlights instead of typing. change covers committing a
+    // select/color picker (focus stays on the field, no focusout) — but
+    // not text/range fields, where change fires mid-edit.
+    document.addEventListener('focusout', (e) => {
+      const field = sdField(e.target);
+      if (field && field.dataset.sdManaged === '1') sdLock(field);
+    });
+    document.addEventListener('change', (e) => {
+      const field = sdField(e.target);
+      if (field && field.dataset.sdManaged === '1'
+          && (field.tagName === 'SELECT' || field.type === 'color')) sdLock(field);
+    });
     // Shared guard for all keyboard shortcuts: never fire while typing or
-    // when a modifier chord (browser/OS shortcut) is held.
+    // when a modifier chord (browser/OS shortcut) is held. Highlighted
+    // (locked) fields and check/radio controls don't count as typing, so
+    // navigation keeps working across them.
     function sdTyping(e) {
-      return e.ctrlKey || e.altKey || e.metaKey ||
-        (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]'));
+      if (e.ctrlKey || e.altKey || e.metaKey) return true;
+      const t = e.target.closest &&
+        e.target.closest('input, textarea, select, [contenteditable="true"]');
+      if (!t) return false;
+      const field = sdField(t);
+      if (!field) return false;  // checkbox/radio: Enter/Space toggle natively
+      return !sdLocked(field);
     }
     let sdToastTimer;
     function sdToast(msg, err) {
@@ -238,24 +331,42 @@
         }
         next = next || candidates[0];
       } else {
+        // Edge-based scoring: 'ahead' is how far focus travels (facing
+        // edge to facing edge) and 'cross' is the gap between the two
+        // elements' spans on the other axis — zero when they overlap,
+        // i.e. they share the arrow's row/column. Same-row/column
+        // candidates always beat diagonal ones (the tier constant
+        // outweighs any on-screen distance): walking a toolbar must
+        // reach its far end, not drop into nearer content below.
+        // (Center-to-center scoring failed both ways: a full-width
+        // banner's center is far from an edge column, and a 10px
+        // carousel dot's center is near everything.)
         const r0 = from.getBoundingClientRect();
-        const cx = r0.left + r0.width / 2, cy = r0.top + r0.height / 2;
         let best = Infinity;
         for (const el of candidates) {
           if (el === from) continue;
           const r = el.getBoundingClientRect();
-          const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
-          const ahead = dx * dir[0] + dy * dir[1];        // distance along the arrow
-          if (ahead <= 1) continue;
-          const cross = Math.abs(dx * dir[1]) + Math.abs(dy * dir[0]);
-          const score = ahead + cross * 2;
+          const ahead = dir[0]
+            ? (dir[0] > 0 ? r.left - r0.right : r0.left - r.right)
+            : (dir[1] > 0 ? r.top - r0.bottom : r0.top - r.bottom);
+          if (ahead < -6) continue;  // behind or overlapping the origin
+          const [lo, hi] = dir[0]
+            ? [Math.max(r.top, r0.top), Math.min(r.bottom, r0.bottom)]
+            : [Math.max(r.left, r0.left), Math.min(r.right, r0.right)];
+          const cross = lo <= hi ? 0 : lo - hi;
+          const score = Math.max(ahead, 0) + cross * 2 + (cross > 0 ? 1e6 : 0);
           if (score < best) { best = score; next = el; }
         }
       }
       if (next) {
         e.preventDefault();
+        if (sdField(next)) sdLock(next);
         next.focus();
         next.scrollIntoView({ block: 'nearest' });
+      } else if (from && sdField(from) && sdLocked(from)) {
+        // Highlighted field at the edge of the page: swallow the arrow so
+        // it can't change the field's value (select/range defaults).
+        e.preventDefault();
       }
     });
   </script>
