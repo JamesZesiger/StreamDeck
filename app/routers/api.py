@@ -169,6 +169,38 @@ def _in_library_snippet(title_id: int) -> Response:
     )
 
 
+def all_episode_keys(seasons: list[dict]) -> set[tuple[int, int]]:
+    """Every (season, episode) of a show, from its TMDB season list —
+    episodes numbered 1..episode_count, as the title page counts them."""
+    return {(s["season_number"], e) for s in seasons
+            for e in range(1, s["episode_count"] + 1)}
+
+
+async def _set_all_episodes(session: AsyncSession, profile_id: int,
+                            tmdb_id: int, watched: bool) -> None:
+    """A show marked watched has watched every episode, and unwatched
+    clears them, so its episode tracker agrees with the title. Best-effort
+    on the way up: if TMDB can't list the seasons, the title-level mark
+    still changes and the episodes are left as they were."""
+    existing = {(r.season, r.episode): r for r in (await session.execute(
+        select(ProfileEpisodeWatch).where(
+            ProfileEpisodeWatch.profile_id == profile_id,
+            ProfileEpisodeWatch.tmdb_id == tmdb_id))).scalars()}
+    if not watched:
+        for row in existing.values():
+            await session.delete(row)
+        return
+    from routers import pages
+    try:
+        seasons = await pages.seasons_cached(tmdb_id)
+    except Exception:
+        log.warning("Couldn't list seasons for show %s; episodes left as-is", tmdb_id)
+        return
+    for season, episode in all_episode_keys(seasons) - existing.keys():
+        session.add(ProfileEpisodeWatch(profile_id=profile_id, tmdb_id=tmdb_id,
+                                        season=season, episode=episode))
+
+
 @router.patch("/titles/{title_id}/watched")
 async def toggle_watched(request: Request, title_id: int,
                          session: AsyncSession = Depends(get_session)):
@@ -190,8 +222,13 @@ async def toggle_watched(request: Request, title_id: int,
         session.add(ProfileWatch(profile_id=profile.id, tmdb_id=title.tmdb_id,
                                  media_type=title.media_type))
         label = "Watched ✓"
+    if title.media_type == MediaType.tv:
+        await _set_all_episodes(session, profile.id, title.tmdb_id, watched=not watch)
     await session.commit()
-    return Response(content=label, media_type="text/plain")
+    # A show's page also shows per-season episode counts; reload it so they
+    # match instead of swapping only the button label.
+    headers = {"HX-Refresh": "true"} if title.media_type == MediaType.tv else None
+    return Response(content=label, media_type="text/plain", headers=headers)
 
 
 @router.patch("/titles/{title_id}/list")
@@ -459,6 +496,16 @@ async def bulk_titles(request: Request, action: str = Form(...),
                                          tmdb_id=key[0], media_type=key[1]))
             elif action == "unwatched" and key in watches:
                 await session.delete(watches[key])
+        # Shows take their episodes along. Warm the season cache for all of
+        # them at once so a big selection isn't one TMDB round trip at a time.
+        shows = [tmdb_id for tmdb_id, media_type in keys if media_type == MediaType.tv]
+        if action == "watched" and shows:
+            from routers import pages
+            await asyncio.gather(*(pages.seasons_cached(s) for s in shows),
+                                 return_exceptions=True)
+        for tmdb_id in shows:
+            await _set_all_episodes(session, profile.id, tmdb_id,
+                                    watched=action == "watched")
     await session.commit()
     return Response(status_code=204)
 
@@ -503,6 +550,7 @@ async def edit_site(
     tmdb_provider_id: str = Form(""),
     search_url: str = Form(""),
     search_links_only: str = Form(""),
+    search_button: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ):
     await _unlocked_profile(request, session)
@@ -510,7 +558,8 @@ async def edit_site(
     try:
         site = sites.update_site(slug, name, base_domain,
                                  provider_id, search_url,
-                                 search_links_only=bool(search_links_only))
+                                 search_links_only=bool(search_links_only),
+                                 search_button=bool(search_button))
     except ValueError as exc:
         return _msg(str(exc))
     service = (await session.execute(

@@ -117,6 +117,14 @@
               <span class="text-zinc-500">— skip Wikidata; imported titles always deep-link to the search URL</span></span>
           </label>
         </div>
+        <div class="sm:col-span-2">
+          <label class="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input type="checkbox" name="search_button" {{ 'checked' if s.search_button }}
+                   class="w-4 h-4 accent-red-600">
+            <span>Search button on library results
+              <span class="text-zinc-500">— searching the library offers “Search {{ s.name }}”; needs {query} in the search URL</span></span>
+          </label>
+        </div>
         <div class="sm:col-span-2 flex items-center gap-4">
           <button type="submit" class="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white px-5 py-2 text-sm font-semibold">Save</button>
           <button type="button" onclick="document.getElementById('edit-{{ s.slug }}').classList.add('hidden')"
@@ -133,4 +141,13 @@
     can be thousands of titles. Imports run in the background — refresh the page to watch the count climb. Preloaded
     titles deep-link to the site's search page for that title.</p>
 </div>
+<script>
+  // Back closes an open "Add all" dialog before leaving the page.
+  document.addEventListener('sd:back', (e) => {
+    const dialog = document.querySelector('[id^="preload-modal-"]:not(.hidden)');
+    if (!dialog) return;
+    dialog.classList.add('hidden');
+    e.preventDefault();
+  });
+</script>
 {% endblock %}

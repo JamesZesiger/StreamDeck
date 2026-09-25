@@ -42,6 +42,19 @@
    sit between tile rows instead of stacking at the top; htmx search/sort
    swaps render tiles only. #}
 {% set break1, break2 = 12, 36 %}
+{# Library search: a "Search <site>" button for each site with its search
+   button turned on (Sites → edit). Inside the partial so htmx search swaps
+   refresh the query in the links. #}
+{% if search_sites %}
+<div class="flex flex-wrap items-center gap-2 mb-4">
+  <span class="text-sm text-zinc-500">Not what you want?</span>
+  {% for s in search_sites %}
+  <a href="{{ s.url }}" target="_blank" rel="noopener" title="Search {{ s.name }} for “{{ q }}”"
+     class="inline-flex items-center gap-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm">
+    <img src="{{ s.icon_path }}" alt="" class="w-5 h-5 rounded pointer-events-none">Search {{ s.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
 {% if show_banners and continuing %}{% include "partials/continue_banner.html" %}{% endif %}
 {% if show_banners and leaving %}{% include "partials/leaving_banner.html" %}{% endif %}
 {% if groups %}

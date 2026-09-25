@@ -18,6 +18,7 @@ from models import (MediaType, Profile, ProfileEpisodeWatch, ProfileListItem,
                     ProfileWatch, Service, Title)
 from profiles import (RATING_CAPS, active_profile, allowed_service_slugs,
                       cert_level, settings_locked, title_allowed)
+from config import settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -28,6 +29,22 @@ templates.env.globals["regions"] = prefs.REGIONS
 templates.env.globals["current_region"] = prefs.get_region
 templates.env.globals["accents"] = prefs.ACCENTS
 templates.env.globals["current_theme"] = prefs.get_theme
+
+
+def dashboard_url(request: Request) -> str | None:
+    """dashBoard on the host the browser used to reach us — localhost at the
+    desk, the Tailscale name on a phone. Both apps publish their ports on the
+    same machine, so only the port differs. None when no dashBoard is
+    configured (DASHBOARD_PORT unset), which hides the nav button."""
+    if not settings.dashboard_port:
+        return None
+    host = request.url.hostname or "localhost"
+    if ":" in host:  # IPv6 literal
+        host = f"[{host}]"
+    return f"{request.url.scheme}://{host}:{settings.dashboard_port}"
+
+
+templates.env.globals["dashboard_url"] = dashboard_url
 
 # Collection details never really change; fetch each id from TMDB once.
 _collection_cache: dict[int, dict] = {}
@@ -255,10 +272,13 @@ async def library(
         groups.sort(key=lambda g: g["votes"], reverse=True)
         groups.sort(key=lambda g: g["rating"], reverse=True)
 
+    search_sites = sites.search_buttons(q or "", allowed)
+
     # htmx search requests swap only the grid
     if request.headers.get("hx-request") == "true":
         return templates.TemplateResponse(request, "partials/tile_grid.html",
-                                          {"groups": groups, "q": q})
+                                          {"groups": groups, "q": q,
+                                           "search_sites": search_sites})
 
     services = (await session.execute(
         select(Service).where(Service.enabled).order_by(Service.name)
@@ -287,6 +307,7 @@ async def library(
         "active_list": list_only,
         "active_profile": profile,
         "q": q,
+        "search_sites": search_sites,
         "sort": sort,
     })
 
@@ -521,6 +542,7 @@ async def sites_page(request: Request, msg: str | None = None, add: str | None =
         "tmdb_provider_id": s.get("tmdb_provider_id"),
         "search_url": s.get("search_url", ""),
         "search_links_only": s.get("search_links_only", False),
+        "search_button": s.get("search_button", False),
     } for s in sites.load_sites()]
     return templates.TemplateResponse(request, "sites.html", {
         "sites": site_rows, "msg": msg, "show_add": bool(add),

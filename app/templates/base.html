@@ -76,6 +76,26 @@
         {% endfor %}
       </div>
       <div class="flex items-center gap-x-4 justify-end">
+      {# Library search, on every page: the library live-filters its grid
+         through the nav_search_attrs block; everywhere else Enter submits
+         to the library with the query. #}
+      <form role="search" class="min-w-0" {% block nav_search_form %}action="/" method="get"{% endblock %}>
+        <input type="search" name="q" id="nav-search" value="{{ q or '' }}" placeholder="Search library…"
+               title="Search library (Space or X)" autocomplete="off" {% block nav_search_attrs %}{% endblock %}
+               class="w-32 sm:w-52 max-w-full rounded-lg bg-zinc-900 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
+      </form>
+      {# homenet's dashBoard, only when DASHBOARD_PORT is set. Opens in its
+         own named tab, reusing it if already open (see the window.name note
+         in the script below). #}
+      {% set dash = dashboard_url(request) %}
+      {% if dash %}
+      <a href="{{ dash }}" target="homenet-dashboard" title="Dashboard"
+         class="rounded-lg p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/>
+        </svg>
+      </a>
+      {% endif %}
       <a href="/settings" title="Settings"
          class="rounded-lg p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -117,8 +137,7 @@
           <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
             <span>{{ kbd('←') }} {{ kbd('→') }} {{ kbd('↑') }} {{ kbd('↓') }}</span><span>Move between tiles</span>
             <span>{{ kbd('Enter') }}</span><span>Open selected title</span>
-            <span>{{ kbd('/') }}</span><span>Search library</span>
-            <span>{{ kbd('f') }}</span><span>Filters &amp; search drawer</span>
+            <span>{{ kbd('f') }}</span><span>Filters drawer</span>
             <span>{{ kbd('a') }}</span><span>Add a title</span>
             <span>{{ kbd('s') }}</span><span>Select mode (bulk actions)</span>
           </div>
@@ -130,7 +149,7 @@
             <span>{{ kbd('t') }}</span><span>Trailer</span>
             <span>{{ kbd('w') }}</span><span>Toggle watched</span>
             <span>{{ kbd('l') }}</span><span>Toggle my list</span>
-            <span>{{ kbd('⌫') }}</span><span>Back to library</span>
+            <span>{{ kbd('⌫') }}</span><span>Back</span>
           </div>
         </div>
         <div>
@@ -138,15 +157,21 @@
           <div class="grid grid-cols-[7rem_1fr] gap-y-1.5 items-center">
             <span>{{ kbd('←') }} {{ kbd('→') }} {{ kbd('↑') }} {{ kbd('↓') }}</span><span>Move between controls</span>
             <span>{{ kbd('Enter') }}</span><span>Select — start typing / open a picker</span>
+            <span>{{ kbd('Space') }}</span><span>Search library (controller: X)</span>
             <span>{{ kbd('1') }} {{ kbd('2') }} {{ kbd('3') }}</span><span>Discover / Browse / Sites</span>
             <span>{{ kbd('?') }}</span><span>This overlay</span>
-            <span>{{ kbd('Esc') }}</span><span>Leave a field, close menus &amp; overlays</span>
+            <span>{{ kbd('Esc') }}</span><span>Back (controller: B) — leaves a field, closes what's open, then the previous page</span>
           </div>
         </div>
       </div>
     </div>
   </div>
   <script>
+    // One tab per homenet app: name this tab so links elsewhere that target
+    // "homenet-streamdeck" (dashBoard's Open button) reuse it instead of
+    // opening another, and the nav's Dashboard button likewise targets
+    // "homenet-dashboard". Switching back and forth never piles up tabs.
+    window.name = 'homenet-streamdeck';
     document.addEventListener('click', (e) => {
       document.querySelectorAll('details[open]').forEach((d) => {
         if (!d.contains(e.target)) d.removeAttribute('open');
@@ -280,22 +305,144 @@
       if (show === undefined) show = el.classList.contains('hidden');
       el.classList.toggle('hidden', !show);
     }
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'));
-        sdToggleHelp(false);
-        return;
+    // Search from anywhere (Space or controller X): close whatever is open
+    // over the page, then activate the nav search so typing starts at once
+    // — even if an earlier arrow-nav visit left it highlighted (locked).
+    // Page-level layers (drawer, trailer) close on the sd:search event.
+    // Already open (focused and active) means leave it alone: Space then
+    // types a space, and X doesn't reselect what's been typed. Steam's
+    // Desktop Layout can map a Steam Controller's X to Space.
+    function sdOpenSearch() {
+      const input = document.getElementById('nav-search');
+      if (!input || (document.activeElement === input && !sdLocked(input))) return;
+      document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'));
+      sdToggleHelp(false);
+      document.dispatchEvent(new Event('sd:search'));
+      sdActivate(input);
+      input.select();
+    }
+    // Back (Esc or controller B) peels off one layer per press: an active
+    // field, then the shortcuts overlay or profile menu, then page layers
+    // (drawer, select mode, trailer, dialogs — each page cancels sd:back
+    // when it closes one), and only then the page itself.
+    function sdBack() {
+      const field = sdField(document.activeElement);
+      if (field && !sdLocked(field)) { sdLock(field); return; }
+      const help = document.getElementById('kbd-help');
+      if (!help.classList.contains('hidden')) { sdToggleHelp(false); return; }
+      const menu = document.querySelector('#profile-menu[open]');
+      if (menu) { menu.removeAttribute('open'); return; }
+      if (!document.dispatchEvent(new Event('sd:back', { cancelable: true }))) return;
+      sdGoBack();
+    }
+    // Previous page, but never out of streamDeck: history.back() only when
+    // the last page was ours (not the dashBoard tab or a streaming site).
+    // With nowhere earlier, fall back to Browse; on Browse, a search or
+    // filter clears, and plain Browse is home, so Back stops there.
+    function sdGoBack() {
+      const fromHere = document.referrer
+        && new URL(document.referrer).origin === location.origin;
+      if (location.pathname === '/') {
+        if (location.search) window.location.href = '/';
+      } else if (fromHere && history.length > 1) {
+        history.back();
+      } else {
+        window.location.href = '/';
       }
+    }
+    // Controller buttons, by standard-mapping index: X (square on a
+    // PlayStation pad) opens search, B (circle) is Back. The Gamepad API has
+    // no press events, so poll while a pad is connected and act on each
+    // button's press edge only. The full intent layer is specced in
+    // docs/CONTROLLER-ACCESS.md.
+    const SD_PAD_ACTIONS = { 1: () => sdBack(), 2: () => sdOpenSearch() };
+    const sdPadHeld = {};
+    let sdPadFrame = 0;
+    function sdPads() { return [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean); }
+    function sdPadPoll() {
+      const pads = sdPads();
+      for (const [button, action] of Object.entries(SD_PAD_ACTIONS)) {
+        const held = pads.some((p) => p.buttons[button] && p.buttons[button].pressed);
+        if (held && !sdPadHeld[button] && document.hasFocus()) action();
+        sdPadHeld[button] = held;
+      }
+      sdPadFrame = requestAnimationFrame(sdPadPoll);
+    }
+    function sdPadStart() { if (!sdPadFrame) sdPadFrame = requestAnimationFrame(sdPadPoll); }
+    window.addEventListener('gamepadconnected', sdPadStart);
+    window.addEventListener('gamepaddisconnected', () => {
+      if (sdPads().length) return;
+      cancelAnimationFrame(sdPadFrame);
+      sdPadFrame = 0;
+      for (const button of Object.keys(sdPadHeld)) sdPadHeld[button] = false;
+    });
+    // A pad already exposed to this origin is listed without a new
+    // gamepadconnected event after navigating between pages.
+    if (sdPads().length) sdPadStart();
+    document.addEventListener('keydown', (e) => {
+      // An active field's Escape never gets here: the capture handler
+      // above re-locks the field and stops the event.
+      if (e.key === 'Escape') { e.preventDefault(); sdBack(); return; }
       if (sdTyping(e)) return;
       if (e.key === '?') { e.preventDefault(); sdToggleHelp(); return; }
+      if (e.key === ' ') { e.preventDefault(); sdOpenSearch(); return; }
       const tab = document.querySelectorAll('a[data-nav-tab]')[Number(e.key) - 1];
       if (tab && tab.dataset.navTab !== 'active') window.location.href = tab.href;
     });
+    // Remember what was selected, per page URL (search and filters
+    // included), so coming Back lands on the same tile rather than making
+    // the next press start over from the top. Links are keyed by href plus
+    // which copy it was — a title can sit in a banner and the grid at once
+    // — and anything else by id. Storage can be unavailable; then it just
+    // doesn't remember.
+    function sdFocusKey() { return 'sd-focus:' + location.pathname + location.search; }
+    document.addEventListener('focusin', (e) => {
+      const el = e.target;
+      let ref = null;
+      if (el.matches && el.matches('a[href]')) {
+        const href = el.getAttribute('href');
+        const copies = [...document.querySelectorAll('a[href]')].filter((a) => a.getAttribute('href') === href);
+        ref = JSON.stringify({ href, nth: copies.indexOf(el) });
+      } else if (el.id) {
+        ref = JSON.stringify({ id: el.id });
+      }
+      if (!ref) return;
+      try { sessionStorage.setItem(sdFocusKey(), ref); } catch (err) { /* not remembered */ }
+    });
+    function sdRestoreFocus() {
+      let ref;
+      try { ref = JSON.parse(sessionStorage.getItem(sdFocusKey()) || 'null'); } catch (err) { return; }
+      if (!ref) return;
+      const el = ref.id ? document.getElementById(ref.id)
+        : [...document.querySelectorAll('a[href]')].filter((a) => a.getAttribute('href') === ref.href)[ref.nth || 0];
+      if (!el) return;
+      // Instant: this is arriving, not moving. 'nearest' leaves the page
+      // where the saved scroll put it when the tile is already on-screen.
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: 'nearest' });
+    }
+    // Back/forward arrivals only — a fresh visit starts at the top. Next
+    // frame, after the library's own scroll restore; and again when the
+    // browser brings the page back from its back/forward cache.
+    const sdNavEntry = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    if (sdNavEntry && sdNavEntry.type === 'back_forward') requestAnimationFrame(sdRestoreFocus);
+    window.addEventListener('pageshow', (e) => { if (e.persisted) sdRestoreFocus(); });
     // Spatial navigation: arrows move focus to the nearest interactive
     // element in that direction, so every page works from a TV remote.
     // Page scripts that handle arrows themselves (the library's tile
     // grid) run first and preventDefault; this handler then stays out.
     const SD_DIRS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    // Move focus and glide the page to it. focus() on its own snaps the
+    // element into view instantly, so suppress that and scroll smoothly
+    // instead; a held direction retargets the running scroll rather than
+    // queueing jumps. 'nearest' only scrolls when the element is off-screen
+    // (scroll-margin keeps it clear of the sticky nav). Reduce-motion users
+    // keep the instant jump.
+    const SD_SCROLL = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    function sdFocus(el) {
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: SD_SCROLL });
+    }
     function sdFocusScope() {
       // Confine focus to the top open layer so it can't wander behind it.
       for (const sel of ['#kbd-help', '#trailer-modal', '#library-drawer', '#profile-menu[open]']) {
@@ -361,8 +508,7 @@
       if (next) {
         e.preventDefault();
         if (sdField(next)) sdLock(next);
-        next.focus();
-        next.scrollIntoView({ block: 'nearest' });
+        sdFocus(next);
       } else if (from && sdField(from) && sdLocked(from)) {
         // Highlighted field at the edge of the page: swallow the arrow so
         // it can't change the field's value (select/range defaults).

@@ -71,6 +71,12 @@ direct service page resolved from Wikidata's public streaming-id catalogue (IMDb
 service title id, best effort), falling back to the service's search page. Custom sites can
 be marked search-links-only to skip resolution entirely.
 
+A site can also turn on a **search button**: searching the library then shows a
+"Search <site>" button above the results, opening that site's search page for the
+query in a new tab — for when the title isn't in the library yet. It needs `{query}`
+in the site's search URL, and a restricted profile only sees buttons for its allowed
+services.
+
 ### Sign-in
 
 The user signs in to each service **once, manually**, in their own browser — the same browser
@@ -133,11 +139,9 @@ synced into the `services` table on startup).
 - `app_prefs`: `key`, JSON-encoded `value` (language, region, theme, PIN hash, token
   signing key).
 
-The schema is managed by Alembic (`app/migrations/`): the app runs
-`alembic upgrade head` on startup, so `docker compose up` still needs no manual
-migration step. The baseline revision creates the full schema on fresh databases and
-absorbs pre-Alembic installs (which used `create_all` plus idempotent `ALTER`s).
-Schema changes are new revisions: `cd app && alembic revision -m "..."`.
+Schema is created with `create_all` on startup; additive/removal column changes are applied
+with small idempotent `ALTER`s in `_init_db`. Alembic can be introduced when the schema
+churns more.
 
 ## Routes
 
