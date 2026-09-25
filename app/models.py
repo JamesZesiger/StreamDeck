@@ -30,6 +30,10 @@ class Service(Base):
 
 class Title(Base):
     __tablename__ = "titles"
+    # One row per title per service. The same title on two services is two
+    # rows (grouped into one tile), but never twice on the same service.
+    __table_args__ = (UniqueConstraint("service_id", "tmdb_id", "media_type",
+                                       name="uq_titles_service_tmdb"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     service_id: Mapped[int] = mapped_column(ForeignKey("services.id"))

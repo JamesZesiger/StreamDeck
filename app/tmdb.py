@@ -90,6 +90,7 @@ async def discover_by_provider(provider_id: int, media_type: str,
     # the selected region can actually watch.
     region = region or prefs.get_region() or "US"
     ids: list[int] = []
+    seen: set[int] = set()
     page = 1
     async with httpx.AsyncClient(timeout=30) as client:
         while limit is None or len(ids) < limit:
@@ -110,7 +111,12 @@ async def discover_by_provider(provider_id: int, media_type: str,
             r = await client.get(f"{BASE}/discover/{media_type}", params=params)
             r.raise_for_status()
             data = r.json()
-            ids.extend(item["id"] for item in data.get("results", []))
+            # Popularity shifts while paging, so a title can turn up on two
+            # pages; keep only its first (most popular) appearance.
+            for item in data.get("results", []):
+                if item["id"] not in seen:
+                    seen.add(item["id"])
+                    ids.append(item["id"])
             if page >= data.get("total_pages", 1):
                 break
             page += 1

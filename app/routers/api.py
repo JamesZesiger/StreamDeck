@@ -65,6 +65,17 @@ async def create_title(
     service = await session.get(Service, service_id)
     if not service:
         raise HTTPException(400, "Unknown service")
+    # Already on this service (one row per title per service): keep that
+    # row, taking the pasted URL — an exact link beats a search-page one.
+    existing = (await session.execute(
+        select(Title).where(Title.service_id == service.id,
+                            Title.tmdb_id == tmdb_id,
+                            Title.media_type == MediaType(media_type))
+    )).scalar_one_or_none()
+    if existing:
+        existing.deep_link = url
+        await session.commit()
+        return Response(headers={"HX-Redirect": f"/titles/{existing.id}"})
     details = await tmdb.get_details(tmdb_id, media_type)
     site = sites.get_site(service.slug) or {}
     title = Title(
@@ -630,7 +641,9 @@ async def _run_preload(slug: str, service_id: int, provider_id: int,
                 ids = await tmdb.discover_by_provider(
                     provider_id, media_type,
                     limit=per_type, min_votes=PRELOAD_MIN_VOTES)
-                fresh = [i for i in ids if (i, media_type) not in existing]
+                # dict.fromkeys: each id once, in order — never insert a
+                # title twice for this service.
+                fresh = [i for i in dict.fromkeys(ids) if (i, media_type) not in existing]
                 for start in range(0, len(fresh), PRELOAD_BATCH):
                     chunk = fresh[start:start + PRELOAD_BATCH]
                     details = await asyncio.gather(

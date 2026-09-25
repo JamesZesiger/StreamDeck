@@ -95,6 +95,19 @@ async def _init_db(retries: int = 10) -> None:
                     await conn.execute(text("ALTER TABLE titles DROP COLUMN watched"))
                 await conn.execute(text(
                     "ALTER TABLE titles DROP COLUMN IF EXISTS last_played_at"))
+                # "Add all" once inserted a title twice for the same service
+                # when TMDB's popularity-sorted pages repeated it. Keep the
+                # oldest row of each pair (nothing references titles.id —
+                # watch state is keyed by tmdb_id), then make it impossible.
+                # Fresh databases get the constraint from create_all instead,
+                # under the same name, so this is a no-op there.
+                await conn.execute(text(
+                    "DELETE FROM titles t USING titles d "
+                    "WHERE t.service_id = d.service_id AND t.tmdb_id = d.tmdb_id "
+                    "AND t.media_type = d.media_type AND t.id > d.id"))
+                await conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_titles_service_tmdb "
+                    "ON titles (service_id, tmdb_id, media_type)"))
             break
         except Exception:
             if attempt == retries - 1:
