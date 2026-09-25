@@ -80,6 +80,9 @@ def load_sites() -> list[dict]:
         # True = never resolve direct title links via Wikidata; every
         # preloaded title deep-links to the site's search page instead.
         base.setdefault("search_links_only", False)
+        # True = offer a "Search on <site>" button above library search
+        # results, opening the site's search page for the query.
+        base.setdefault("search_button", False)
         merged.append(base)
     if had_credentials:
         save_sites(merged)
@@ -147,7 +150,8 @@ def add_site(name: str, base_domain: str,
 
 def update_site(slug: str, name: str, base_domain: str,
                 tmdb_provider_id: int | None, search_url: str,
-                search_links_only: bool = False) -> dict:
+                search_links_only: bool = False,
+                search_button: bool = False) -> dict:
     """Update a site in place. Slug is the identity and never changes."""
     sites = load_sites()
     for s in sites:
@@ -163,6 +167,7 @@ def update_site(slug: str, name: str, base_domain: str,
                 raise ValueError("Search URL must start with http:// or https://.")
             s["search_url"] = cleaned
         s["search_links_only"] = search_links_only
+        s["search_button"] = search_button
         save_sites(sites)
         return s
     raise ValueError("Unknown site.")
@@ -174,6 +179,20 @@ def title_search_link(site: dict, query: str) -> str:
     from urllib.parse import quote_plus
     tmpl = site.get("search_url") or f"https://www.{site['base_domain']}"
     return tmpl.replace("{query}", quote_plus(query)) if "{query}" in tmpl else tmpl
+
+
+def search_buttons(query: str, allowed: set[str] | None = None) -> list[dict]:
+    """"Search on <site>" links for a library search: sites with the search
+    button turned on and a search URL that takes the query, limited to the
+    profile's allowed services (None = unrestricted)."""
+    query = query.strip()
+    if not query:
+        return []
+    return [{"name": s["name"], "icon_path": s["icon_path"],
+             "url": title_search_link(s, query)}
+            for s in load_sites()
+            if s.get("search_button") and "{query}" in (s.get("search_url") or "")
+            and (allowed is None or s["slug"] in allowed)]
 
 
 def detect_service_slug(url: str) -> str | None:

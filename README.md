@@ -31,7 +31,9 @@ Prerequisites: Docker with the Compose plugin, and a free TMDB API key
 ([themoviedb.org](https://www.themoviedb.org/settings/api)).
 
 ```bash
-git clone <this repo> && cd streamDeck
+# Standalone: https://github.com/JamesZesiger/StreamDeck
+git clone https://github.com/JamesZesiger/StreamDeck.git && cd StreamDeck
+# (Inside the homenet monorepo it lives at apps/streamdeck — same steps.)
 
 cp .env.example .env
 # Edit .env: set TMDB_API_KEY and a real POSTGRES_PASSWORD.
@@ -39,7 +41,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Then open **http://localhost:8000** and start adding titles. Sign in to each streaming
+Then open **http://localhost:3000** and start adding titles. Sign in to each streaming
 service once in the same browser — deep links then open already authenticated.
 
 To stop: `docker compose down` (add `-v` to also delete the library database).
@@ -52,16 +54,17 @@ Press `?` on any page for this overlay. Shortcuts never fire while typing in a f
 |---|---|---|
 | Library | `←` `→` `↑` `↓` | Move between tiles (TV-remote friendly) |
 | Library | `Enter` | Open the selected title |
-| Library | `/` | Search the library |
-| Library | `f` | Toggle the filters & search drawer |
+| Library | `f` | Toggle the filters drawer |
 | Library | `a` | Add a title |
 | Library | `s` | Select mode — pick tiles, then bulk mark watched/unwatched or remove |
 | Title page | `p` | Play on the default service |
 | Title page | `t` | Play the trailer |
 | Title page | `w` | Toggle watched |
 | Title page | `l` | Toggle my list |
-| Title page | `Backspace` | Back to the library |
+| Title page | `Backspace` | Back |
 | Anywhere | `←` `→` `↑` `↓` | Move focus between controls (spatial navigation) |
+| Anywhere | `Esc`, or **B** on a controller | Back: leaves a field, closes whatever is open (menu, drawer, select mode, trailer, dialog), then goes to the previous streamDeck page — never out of the app |
+| Anywhere | `Space`, or **X** on a controller | Search the library from the search box in the nav bar (does nothing if it's already open, so Space types normally there) |
 | Anywhere | `1` `2` `3` | Go to Discover / Browse / Sites |
 | Anywhere | `Esc` | Close menus & overlays |
 
@@ -126,8 +129,8 @@ Infrastructure: `postgres:16-alpine` and a local image built on `python:3.12-sli
 - **No scraping.** Metadata comes from the TMDB API; availability from TMDB/JustWatch
   watch-provider data; deep links from Wikidata's public catalogue. Streaming sites are only
   ever opened to play content, as a normal browser would.
-- **Simple to operate.** One `docker compose up`, schema migrated on startup (Alembic
-  runs automatically), human-editable JSON config (edits to `sites.json` apply on
+- **Simple to operate.** One `docker compose up`, schema created on startup with small
+  idempotent migrations, human-editable JSON config (edits to `sites.json` apply on
   restart).
 - **Household-friendly.** Per-profile watch state and watch lists, unified US movie/TV
   age-rating levels for kid profiles, and a short-lived parent-PIN unlock.
@@ -250,3 +253,4 @@ sequenceDiagram
 Bulk preload ("Add all" on a site) follows the add flow per title: discover popular titles
 for the site's TMDB provider id in your region, fetch details, batch-resolve deep links via
 Wikidata, and insert in committed batches — with live progress and a stop button.
+The US provider ids are listed in [docs/TMDB-PROVIDERS.md](docs/TMDB-PROVIDERS.md).

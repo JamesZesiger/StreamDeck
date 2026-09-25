@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% set filters_active = active_service or active_watched or active_type or active_genre or active_decade or active_list or q %}
+{% set filters_active = active_service or active_watched or active_type or active_genre or active_decade or active_list %}
 {% block nav_left %}
-<button type="button" id="library-menu-btn" title="Filters &amp; search"
+<button type="button" id="library-menu-btn" title="Filters (f)"
         onclick="toggleLibraryDrawer()"
         class="shrink-0 relative rounded-lg p-2 hover:bg-zinc-800">
   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -12,6 +12,12 @@
   {% endif %}
 </button>
 {% endblock %}
+{# The nav search live-filters the grid here instead of submitting, keeping
+   the drawer's active filters and the sort. #}
+{% block nav_search_form %}onsubmit="return false"{% endblock %}
+{% block nav_search_attrs %}hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
+               hx-replace-url="true" hx-include="[name='sort']"
+               hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'{% endblock %}
 {% block content %}
 {# Lives outside the nav: its backdrop-blur makes the nav the containing
    block for fixed descendants, which would clamp the drawer to nav height. #}
@@ -19,7 +25,7 @@
   <div class="drawer-backdrop absolute inset-0 bg-black/60" onclick="toggleLibraryDrawer(false)"></div>
   <div class="drawer-panel absolute inset-y-0 left-0 w-80 max-w-[85vw] bg-zinc-900 border-r border-zinc-800 shadow-2xl p-4 space-y-4 overflow-y-auto">
     <div class="flex items-center justify-between">
-      <span class="text-sm font-semibold uppercase tracking-wide text-zinc-400">Filters &amp; search</span>
+      <span class="text-sm font-semibold uppercase tracking-wide text-zinc-400">Filters</span>
       <button type="button" title="Close menu" class="rounded-lg p-1.5 hover:bg-zinc-800"
               onclick="toggleLibraryDrawer(false)">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -31,13 +37,6 @@
       <a href="/add" class="flex-1 text-center rounded-lg bg-red-600 hover:bg-red-500 px-3 py-1.5 text-sm font-semibold">+ Add title</a>
       <a href="/sites?add=1" class="flex-1 text-center rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm">+ Add site</a>
     </div>
-    <input type="search" name="q" value="{{ q or '' }}" placeholder="Search library…"
-           hx-get="/" hx-trigger="input changed delay:250ms, search" hx-target="#tile-grid" hx-swap="innerHTML"
-           hx-replace-url="true"
-           hx-include="[name='sort']"
-           hx-vals='{"service": "{{ active_service or '' }}", "watched": "{{ active_watched or '' }}", "type": "{{ active_type or '' }}", "genre": "{{ active_genre or '' }}", "decade": "{{ active_decade or '' }}", "list": "{{ active_list or '' }}"}'
-           autocomplete="off"
-           class="w-full rounded-lg bg-zinc-950 border border-zinc-700 focus:border-red-500 focus:outline-none px-3 py-1.5 text-sm">
     <div>
       <div class="text-xs uppercase tracking-wide text-zinc-500 mb-2">Service</div>
       <div class="flex flex-wrap items-center gap-1.5" data-filter-group="service">
@@ -129,7 +128,7 @@
     <div class="flex gap-2 pt-1">
       <button type="button" onclick="applyFilters()"
               class="flex-1 rounded-lg bg-red-600 hover:bg-red-500 px-3 py-1.5 text-sm font-semibold">Apply filters</button>
-      {% if filters_active %}
+      {% if filters_active or q %}
       <button type="button" onclick="window.location.href='/'"
               class="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-300">Reset</button>
       {% endif %}
@@ -151,12 +150,17 @@
     drawer.style.top = document.querySelector('nav').offsetHeight + 'px';
     drawer.classList.toggle('hidden', !show);
   }
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
+  // Back closes the drawer, then select mode, before leaving the page.
+  document.addEventListener('sd:back', (e) => {
+    if (!document.getElementById('library-drawer').classList.contains('hidden')) {
       toggleLibraryDrawer(false);
+      e.preventDefault();
+    } else if (selectMode) {
       toggleSelectMode(false);
+      e.preventDefault();
     }
   });
+  document.addEventListener('sd:search', () => toggleLibraryDrawer(false));
   // Select mode: tile clicks toggle selection instead of navigating; the
   // bottom bar applies one action to everything selected in a single call.
   let selectMode = false;
@@ -240,7 +244,8 @@
     if (savedY) requestAnimationFrame(() => window.scrollTo(0, savedY));
   }
   // Keyboard controls: arrows move tile focus (Enter opens — tiles are
-  // anchors), '/' searches, 'f' toggles filters, 'a' adds a title.
+  // anchors), 'f' toggles filters, 'a' adds a title. Space (search) is
+  // global, in base.html.
   function nearestVertical(tiles, from, dir) {
     // Columns per row vary by breakpoint and banners split the grid into
     // blocks, so up/down picks the geometrically closest tile in that
@@ -260,14 +265,6 @@
   }
   document.addEventListener('keydown', (e) => {
     if (sdTyping(e)) return;
-    if (e.key === '/') {
-      e.preventDefault();
-      toggleLibraryDrawer(true);
-      // '/' means "search now": activate the field even if a previous
-      // arrow-nav visit left it in the highlighted (locked) state.
-      sdActivate(document.querySelector('input[name="q"]'));
-      return;
-    }
     if (e.key === 'f') { toggleLibraryDrawer(); return; }
     if (e.key === 'a') { window.location.href = '/add'; return; }
     if (e.key === 's') { toggleSelectMode(); return; }
@@ -280,7 +277,15 @@
     if (idx === -1 && document.activeElement !== document.body
         && document.activeElement !== document.documentElement) return;
     let next;
-    if (idx === -1) next = tiles[0];
+    // Nothing selected yet: start from the first tile on screen, not the
+    // first in the grid — that would scroll back to the top.
+    const navBottom = document.querySelector('nav').getBoundingClientRect().bottom;
+    if (idx === -1) {
+      next = tiles.find((t) => {
+        const r = t.getBoundingClientRect();
+        return r.top >= navBottom && r.top < innerHeight;
+      }) || tiles[0];
+    }
     else if (e.key === 'ArrowRight') next = tiles[idx + 1];
     else if (e.key === 'ArrowLeft') next = tiles[idx - 1];
     else next = nearestVertical(tiles, tiles[idx], e.key === 'ArrowDown' ? 1 : -1);
@@ -288,10 +293,9 @@
     // focus can climb out (carousel, banners, nav) instead of stopping.
     if (!next) return;
     e.preventDefault();
-    next.focus();
-    // 'nearest': only scrolls when the tile is off-screen, and then just
-    // far enough to snap it to the closest edge (scroll-margin pads it).
-    next.scrollIntoView({ block: 'nearest' });
+    // Smooth, and only as far as needed to bring the tile on-screen (see
+    // sdFocus in base.html).
+    sdFocus(next);
   });
   // Filter chips only stage their value here — nothing reloads until Apply,
   // so several filters can be picked in one drawer visit. Closing the drawer

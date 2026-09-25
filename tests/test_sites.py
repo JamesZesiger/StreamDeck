@@ -104,3 +104,49 @@ class TestRegistry:
         sites.load_sites()
         with pytest.raises(ValueError):
             sites.update_site("nope", "Nope", "nope.com", None, "")
+
+
+class TestSearchButtons:
+    def test_off_by_default(self):
+        assert not any(s.get("search_button") for s in sites.load_sites())
+        assert not sites.search_buttons("the bear")
+
+    def test_update_site_saves_search_button(self):
+        sites.load_sites()
+        updated = sites.update_site("netflix", "Netflix", "netflix.com", 8,
+                                    "https://www.netflix.com/search?q={query}",
+                                    search_button=True)
+        assert updated["search_button"] is True
+        assert sites.get_site("netflix")["search_button"] is True
+
+    def test_links_sites_with_button_on(self):
+        sites.load_sites()
+        sites.update_site("netflix", "Netflix", "netflix.com", 8,
+                          "https://www.netflix.com/search?q={query}",
+                          search_button=True)
+        assert sites.search_buttons("the bear") == [{
+            "name": "Netflix",
+            "icon_path": "/static/icons/netflix.svg",
+            "url": "https://www.netflix.com/search?q=the+bear",
+        }]
+
+    def test_needs_a_query(self):
+        sites.load_sites()
+        sites.update_site("netflix", "Netflix", "netflix.com", 8,
+                          "https://www.netflix.com/search?q={query}",
+                          search_button=True)
+        assert not sites.search_buttons("   ")
+
+    def test_skips_search_url_without_query_placeholder(self):
+        sites.load_sites()
+        sites.update_site("netflix", "Netflix", "netflix.com", 8,
+                          "https://www.netflix.com", search_button=True)
+        assert not sites.search_buttons("the bear")
+
+    def test_respects_allowed_services(self):
+        sites.load_sites()
+        sites.update_site("netflix", "Netflix", "netflix.com", 8,
+                          "https://www.netflix.com/search?q={query}",
+                          search_button=True)
+        assert not sites.search_buttons("the bear", allowed={"hulu"})
+        assert sites.search_buttons("the bear", allowed={"netflix"})

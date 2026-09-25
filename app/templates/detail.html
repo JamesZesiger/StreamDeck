@@ -121,7 +121,7 @@
     else if (e.key === 'l') click('[data-kbd="list"]');
     else if (e.key === 'Backspace') {
       e.preventDefault();
-      if (history.length > 1) history.back(); else window.location.href = '/';
+      sdGoBack();
     }
   });
 </script>
@@ -152,9 +152,13 @@
     document.getElementById('trailer-modal').classList.add('hidden');
     document.getElementById('trailer-frame').src = '';
   }
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeTrailer();
+  // Back closes a playing trailer before leaving the page.
+  document.addEventListener('sd:back', (e) => {
+    if (document.getElementById('trailer-modal').classList.contains('hidden')) return;
+    closeTrailer();
+    e.preventDefault();
   });
+  document.addEventListener('sd:search', closeTrailer);
 </script>
 {% endif %}
 {% endblock %}
