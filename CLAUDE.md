@@ -18,9 +18,11 @@
 - To refresh from homenet: copy `apps/streamdeck/` over this repo, then put
   back the standalone changes listed below (e.g. review `git diff` and restore
   those hunks), run pylint and pytest, and commit on a branch.
-- Files that are this repo's own and are never overwritten by a refresh:
-  `.github/`, `.githooks/`, `.gitignore`, `CLAUDE.md`, and `pyproject.toml`
-  (which carries the lint settings homenet keeps at its root).
+- Files that are this repo's own: `.github/`, `.githooks/`, `.gitignore`,
+  `CLAUDE.md`, and `pyproject.toml` (which carries the lint settings homenet
+  keeps at its root). homenet's `apps/streamdeck/` has its own pytest-only
+  `pyproject.toml`, so a copy overwrites this one — restore it afterwards
+  (`git checkout -- pyproject.toml`).
 
 ### Standalone-only changes to re-apply after a refresh
 
